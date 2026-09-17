@@ -130,5 +130,8 @@ Keep it realistic for a cook making one batch for the whole flat on a weekday.`,
     maxTokens: 1500,
   });
 
+  if (!out?.suggestions?.length) {
+    console.warn("[ai] suggest returned nothing usable:", JSON.stringify(out).slice(0, 600));
+  }
   return out.suggestions ?? [];
 }

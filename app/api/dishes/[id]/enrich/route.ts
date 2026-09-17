@@ -3,15 +3,12 @@ import { db } from "@/lib/db";
 import { dishes, dishIngredients } from "@/lib/db/schema";
 import { requireContext, handler, json, ApiError } from "@/lib/api";
 import { aiEnabled, missingKeyName, AiError } from "@/lib/ai/client";
-import { fetchDishDetails } from "@/lib/ai/dish";
+import { fetchDishDetails, normalizeUnit, normalizeCategory, applyPantryDefaults } from "@/lib/ai/dish";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 // The model call can take a while; give it room on serverless hosts.
 export const maxDuration = 60;
-
-const UNITS = new Set(["g", "kg", "ml", "l", "tsp", "tbsp", "cup", "piece", "pinch", "bunch", "to taste"]);
-const CATEGORIES = new Set(["produce", "dairy", "grains", "pulses", "spices", "meat", "other"]);
 
 /**
  * Looks up ingredients + nutrition for a dish and replaces whatever was there.
@@ -42,18 +39,20 @@ export const POST = handler(async (_req: Request, ctx: Ctx) => {
       servings: dish.baseServings,
     });
 
-    const rows = (details.ingredients ?? [])
+    const rows = applyPantryDefaults(
+      (details.ingredients ?? [])
       .filter((i) => i?.name)
       .map((i, idx) => ({
         dishId: dish.id,
         name: String(i.name).slice(0, 120),
         quantity: i.quantity != null && Number.isFinite(i.quantity) ? String(i.quantity) : null,
-        unit: UNITS.has(i.unit) ? i.unit : "g",
-        category: CATEGORIES.has(i.category) ? i.category : "other",
+        unit: normalizeUnit(i.unit),
+        category: normalizeCategory(i.category),
         optional: Boolean(i.optional),
         isPantryStaple: Boolean(i.is_pantry_staple),
         sortOrder: idx,
-      }));
+      })),
+    );
 
     // Replace atomically so a half-written list can never be shown.
     const [updated] = await db.transaction(async (tx) => {

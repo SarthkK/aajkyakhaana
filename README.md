@@ -83,7 +83,8 @@ at [openrouter.ai/keys](https://openrouter.ai/keys) — no card required — and
 
 | | |
 |---|---|
-| Default model | `nvidia/nemotron-3-super-120b-a12b:free` |
+| Default model | `qwen/qwen3.8-27b:free` |
+| Falls back to | `nex-agi/nex-n2.5-mini:free`, then `nvidia/nemotron-3-super-120b-a12b:free` |
 | Free limits | 20 requests/minute, 50/day (1000/day once you have ever bought $10 of credit) |
 | Cost | ₹0 |
 
@@ -101,13 +102,32 @@ are. Switch to `AI_PROVIDER="anthropic"` if you would rather nothing be trained 
 50 requests a day is plenty: a request is spent only when you add a *new* dish, refetch
 its ingredients, or press "Ask AI". Everyday voting, planning and shopping cost nothing.
 
-Swap models with `OPENROUTER_MODEL` — anything from
-[the free list](https://openrouter.ai/models?max_price=0). Worth trying if the default
-starts giving poor ingredient lists:
+### Three things learned the hard way about free models
 
-- `dots-studio/dots-3-note-preview:free` — 512k context
-- `nvidia/nemotron-3-ultra-550b-a55b:free` — biggest, noticeably slower
-- `google/gemma-4-31b-it:free` — fast and small
+These are why `lib/ai/client.ts` looks the way it does. All of them were found by
+actually calling the models, not by reading docs.
+
+1. **Structured outputs, not tool calling.** Asked to call a tool, several free models
+   either ignore it or "call" it with an empty argument object. The same models fill in
+   a `response_format: json_schema` reliably. Switching cut a broken 46-second call down
+   to a working 2.6-second one.
+2. **Turn thinking off.** Hybrid-reasoning models spend their whole budget reasoning
+   about a task this mechanical. `reasoning: { enabled: false }` took one dish lookup
+   from 90 seconds (and a truncated answer) to 2 seconds.
+3. **Free capacity is shared and throttles constantly.** A 429 usually means the
+   *provider* is busy, not that you are out of quota — check with
+   `curl https://openrouter.ai/api/v1/key -H "Authorization: Bearer $OPENROUTER_API_KEY"`.
+   The app sends a short fallback list so OpenRouter reroutes instead of failing, and
+   retries once on top of that.
+
+Also worth knowing: OpenRouter writes SSE keep-alive comments into the body of slow
+non-streaming responses, so the body has to be cleaned before `JSON.parse`. And the
+model's `is_pantry_staple` flag is unreliable, so common masalas are recognised
+server-side — otherwise salt and haldi end up on the weekly shopping list.
+
+Swap models with `OPENROUTER_MODEL` and `OPENROUTER_FALLBACKS` (comma separated) —
+anything from [the free list](https://openrouter.ai/models?max_price=0). OpenRouter
+allows at most three models in the routing list.
 
 **Want better answers and don't mind paying?** Set `AI_PROVIDER="anthropic"` and
 `ANTHROPIC_API_KEY`. Nothing else changes.

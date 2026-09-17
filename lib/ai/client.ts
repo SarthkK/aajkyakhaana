@@ -19,9 +19,28 @@ export function provider(): Provider {
 }
 
 const DEFAULT_MODELS: Record<Provider, string> = {
-  openrouter: "nvidia/nemotron-3-super-120b-a12b:free",
+  openrouter: "qwen/qwen3.8-27b:free",
   anthropic: "claude-sonnet-5",
 };
+
+/**
+ * Free endpoints are throttled by the upstream provider at random, independently of
+ * your own daily quota. OpenRouter will walk this list in order when one is busy, so
+ * a shared-capacity 429 turns into a slightly different answer instead of an error.
+ * All of these were checked against the real dish schema; ordered best-first.
+ */
+const OPENROUTER_FALLBACKS = [
+  "nex-agi/nex-n2.5-mini:free",
+  "nvidia/nemotron-3-super-120b-a12b:free",
+];
+
+function openRouterModelChain(): string[] {
+  const primary = aiModel();
+  const configured = process.env.OPENROUTER_FALLBACKS?.split(",").map((m) => m.trim()).filter(Boolean);
+  const chain = [primary, ...(configured ?? OPENROUTER_FALLBACKS)];
+  // OpenRouter rejects a routing list longer than three.
+  return [...new Set(chain)].slice(0, 3);
+}
 
 export function aiModel() {
   const p = provider();
@@ -73,10 +92,51 @@ async function askOpenRouter<T>(opts: {
   tool: ToolDef;
   maxTokens?: number;
 }): Promise<T> {
+  try {
+    return await callOpenRouter<T>(opts);
+  } catch (err) {
+    // Free endpoints get throttled by the upstream provider at random, separately
+    // from the daily quota. One retry turns most of those into a normal success.
+    if (err instanceof AiError && err.retryable) {
+      await new Promise((r) => setTimeout(r, 1500));
+      return callOpenRouter<T>(opts);
+    }
+    throw err;
+  }
+}
+
+async function callOpenRouter<T>(opts: {
+  system: string;
+  prompt: string;
+  tool: ToolDef;
+  maxTokens?: number;
+}): Promise<T> {
+  try {
+    return await doCall<T>(opts);
+  } catch (err) {
+    if (err instanceof AiError) throw err;
+    // A timeout can fire while the body is still being read, which lands here as a
+    // DOMException rather than anything the fetch try/catch would have seen.
+    const name = (err as { name?: string })?.name;
+    if (name === "TimeoutError" || name === "AbortError") {
+      throw new AiError("The free model took too long to answer. Try again.", true);
+    }
+    console.error("[ai] unexpected failure:", err);
+    throw new AiError("The AI call failed unexpectedly. Try again.", true);
+  }
+}
+
+async function doCall<T>(opts: {
+  system: string;
+  prompt: string;
+  tool: ToolDef;
+  maxTokens?: number;
+}): Promise<T> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new AiError("AI is not configured. Add OPENROUTER_API_KEY to your environment.");
 
-  const model = aiModel();
+  const chain = openRouterModelChain();
+  const model = chain[0];
 
   let res: Response;
   try {
@@ -91,23 +151,32 @@ async function askOpenRouter<T>(opts: {
       },
       body: JSON.stringify({
         model,
+        // OpenRouter falls through this list when a provider is busy or errors.
+        models: chain,
         max_tokens: opts.maxTokens ?? 2000,
         temperature: 0.7,
         messages: [
-          { role: "system", content: opts.system },
+          {
+            role: "system",
+            content: `${opts.system}\n\n${opts.tool.description}\nReply with JSON only — no prose, no code fences — matching this schema:\n${JSON.stringify(opts.tool.input_schema)}`,
+          },
           { role: "user", content: opts.prompt },
         ],
-        tools: [
-          {
-            type: "function",
-            function: {
-              name: opts.tool.name,
-              description: opts.tool.description,
-              parameters: opts.tool.input_schema,
-            },
+        // Structured output beats tool calling on free models: several of them will
+        // happily "call" a tool with no arguments at all, but reliably fill in a schema.
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: opts.tool.name,
+            // Strict mode restricts which schema features are allowed and is unevenly
+            // supported; we validate and normalise the result ourselves anyway.
+            strict: false,
+            schema: opts.tool.input_schema,
           },
-        ],
-        tool_choice: { type: "function", function: { name: opts.tool.name } },
+        },
+        // Hybrid-thinking models take ~90s with reasoning on and ~2s with it off,
+        // for no gain on a task this mechanical. Ignored by models without it.
+        reasoning: { enabled: false },
       }),
       signal: AbortSignal.timeout(55_000),
     });
@@ -120,13 +189,7 @@ async function askOpenRouter<T>(opts: {
 
   if (!res.ok) throw openRouterError(res.status, await res.text());
 
-  // A proxy or gateway can answer 200 with an HTML error page.
-  let body: OpenRouterResponse;
-  try {
-    body = (await res.json()) as OpenRouterResponse;
-  } catch {
-    throw new AiError("OpenRouter sent back something unreadable. Try again.", true);
-  }
+  const body = await readBody(res);
 
   // Some providers report errors with a 200 status.
   if (body.error?.message) throw new AiError(`The model refused: ${body.error.message}`, true);
@@ -134,14 +197,17 @@ async function askOpenRouter<T>(opts: {
   const message = body.choices?.[0]?.message;
   if (!message) throw new AiError("The model returned an empty answer. Try again.", true);
 
-  const args = message.tool_calls?.[0]?.function?.arguments;
-  if (args != null) {
-    // Most providers send a JSON string; a few send the object already parsed.
-    return (typeof args === "string" ? parseJson<T>(args, model) : (args as T));
+  if (body.model && body.model !== model) {
+    console.log(`[ai] ${model} was busy, ${body.model} answered instead`);
   }
 
-  // Free models sometimes ignore tool_choice and just write the JSON out.
   if (message.content) return parseJson<T>(message.content, model);
+
+  // Some providers answer a schema request with a tool call anyway.
+  const args = message.tool_calls?.[0]?.function?.arguments;
+  if (args != null) {
+    return typeof args === "string" ? parseJson<T>(args, model) : (args as T);
+  }
 
   throw new AiError(
     `${model} did not return structured data. Try a different OPENROUTER_MODEL.`,
@@ -149,8 +215,33 @@ async function askOpenRouter<T>(opts: {
   );
 }
 
+/**
+ * While a slow request is in flight OpenRouter keeps the connection alive by writing
+ * SSE-style comment lines (": OPENROUTER PROCESSING") ahead of the real body, which
+ * makes a plain res.json() fail. Strip those, then parse.
+ */
+async function readBody(res: Response): Promise<OpenRouterResponse> {
+  const text = await res.text();
+  const cleaned = text
+    .split("\n")
+    .filter((line) => !line.startsWith(":"))
+    .join("\n")
+    .trim();
+
+  if (!cleaned) throw new AiError("OpenRouter sent back an empty response. Try again.", true);
+
+  try {
+    return JSON.parse(cleaned) as OpenRouterResponse;
+  } catch {
+    console.error("[ai] unparseable OpenRouter body:", text.slice(0, 200));
+    throw new AiError("OpenRouter sent back something unreadable. Try again.", true);
+  }
+}
+
 type OpenRouterResponse = {
   error?: { message?: string };
+  /** Which model actually served the request, after any fallback routing. */
+  model?: string;
   choices?: {
     message?: {
       content?: string | null;

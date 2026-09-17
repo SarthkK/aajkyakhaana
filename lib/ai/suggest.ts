@@ -37,10 +37,10 @@ const tool = {
     type: "object",
     properties: {
       suggestions: {
+        // No minItems/maxItems here: Groq's constrained JSON decoding rejects the
+        // schema outright when they are present. The count is asked for in the prompt.
         type: "array",
-        minItems: 3,
-        maxItems: 3,
-        description: "Three genuinely different options, best first.",
+        description: "Exactly three genuinely different options, best first.",
         items: {
           type: "object",
           properties: {
@@ -120,7 +120,9 @@ export async function suggestMeals(ctx: SuggestContext): Promise<Suggestion[]> {
 
   lines.push(
     `\nHard rules: respect every allergy absolutely. If anyone is vegetarian, at least two of the three options must be vegetarian.
-Keep it realistic for a cook making one batch for the whole flat on a weekday.`,
+Keep it realistic for a cook making one batch for the whole flat on a weekday.
+
+Return exactly three suggestions.`,
   );
 
   const out = await askForObject<{ suggestions: Suggestion[] }>({

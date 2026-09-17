@@ -7,7 +7,8 @@ import { useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
 import { DayBoard } from "@/components/DayBoard";
 import { DaySummaryCard } from "@/components/DaySummaryCard";
-import { Loading, ErrorNote } from "@/components/ui";
+import { ErrorNote } from "@/components/ui";
+import { DayBoardSkeleton, SummaryCardSkeleton } from "@/components/Skeleton";
 import { useSession } from "@/components/SessionProvider";
 import { addDays } from "@/lib/dates";
 import type { PlanResponse, PlanEntryView } from "@/lib/types";
@@ -48,8 +49,16 @@ export default function TodayPage() {
       />
 
       <div className="px-4 pt-4">
-        {loading && !data && <Loading label="Getting the plan…" />}
-        {error && <ErrorNote>{error}</ErrorNote>}
+        {loading && !data && (
+          <>
+            <div className="mb-4">
+              <SummaryCardSkeleton />
+            </div>
+            <DayBoardSkeleton filledSlots={2} />
+            <DayBoardSkeleton filledSlots={0} />
+          </>
+        )}
+        {error && !data && <ErrorNote>{error}</ErrorNote>}
 
         {data && today && tomorrow && (
           <>

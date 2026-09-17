@@ -12,7 +12,7 @@ Built as a **PWA**, so nobody has to install anything: open it on a phone and us
 | | |
 |---|---|
 | **Today & tomorrow first** | The home screen is only those two days. The calendar goes two weeks out when you need it. |
-| **Dish library** | Add a dish by name. Ingredients and per-serving nutrition are fetched by a free AI model, and everything stays editable afterwards. |
+| **Dish library** | Add a dish by name. Ingredients and per-serving nutrition are fetched by a free AI model in a couple of seconds, and everything stays editable afterwards. |
 | **Voting** | Anyone adds a meal to breakfast / lunch / dinner; everyone else gives it a 👍 or 👎. |
 | **Comments** | Per meal, so "rajma again?" lands in the right place. |
 | **Flats** | One flat = one group. Share the 6-character code and flatmates join. |
@@ -87,7 +87,7 @@ DATABASE_URL="$(npx neonctl connection-string dev --project-id bitter-fog-013431
 connection string (it has `-pooler` in the host). Keep `?sslmode=require`.
 
 **App — [Vercel](https://vercel.com).** Import the repo and set three environment
-variables: `DATABASE_URL`, `JWT_SECRET`, `OPENROUTER_API_KEY`. Then run the schema
+variables: `DATABASE_URL`, `JWT_SECRET`, `GROQ_API_KEY`. Then run the schema
 push once against the Neon database from your own machine:
 
 ```bash
@@ -101,30 +101,40 @@ Both free tiers are comfortably enough for a few flats.
 Ingredient lookup, nutrition estimates and meal suggestions all go through one small
 provider wrapper (`lib/ai/client.ts`).
 
-**Default provider: [OpenRouter](https://openrouter.ai), on its free tier.** Get a key
-at [openrouter.ai/keys](https://openrouter.ai/keys) — no card required — and put it in
-`OPENROUTER_API_KEY`. Free models are the ones whose id ends in `:free`.
+**Default provider: [Groq](https://console.groq.com/keys)** — free, no credit card,
+and far and away the most generous free tier available.
 
 | | |
 |---|---|
-| Default model | `qwen/qwen3.8-27b:free` |
-| Falls back to | `nex-agi/nex-n2.5-mini:free`, then `nvidia/nemotron-3-super-120b-a12b:free` |
-| Free limits | 20 requests/minute, 50/day (1000/day once you have ever bought $10 of credit) |
+| Default model | `qwen/qwen3.8-27b` |
+| Falls back to | `openai/gpt-oss-120b`, then `openai/gpt-oss-20b` |
+| Free limits | 30 requests/minute, **14,400/day** |
+| Typical latency | 2–4s for a dish lookup |
 | Cost | ₹0 |
 
-**One setup step that trips everyone up:** free endpoints are only offered to accounts
-that allow training on inputs. Turn on *"Enable free endpoints that may train on inputs"*
-at [openrouter.ai/settings/privacy](https://openrouter.ai/settings/privacy), or every
-call fails with a confusing 404. The app detects that case and tells you.
+Set `GROQ_API_KEY` and you are done. Swap models with `GROQ_MODEL` and `GROQ_FALLBACKS`.
 
-Because of that, prompts sent to a free model may be used for training, so **flatmates'
-names are stripped before anything leaves the server** — the model sees "Flatmate 1:
-veg, goal gain, allergic to peanuts". Nobody's age, height or weight is ever sent; only
-diet, goal, allergies, dislikes, dish names and how far off the day's nutrition targets
-are. Switch to `AI_PROVIDER="anthropic"` if you would rather nothing be trained on.
+**Alternatives**, switched with `AI_PROVIDER`:
 
-50 requests a day is plenty: a request is spent only when you add a *new* dish, refetch
-its ingredients, or press "Ask AI". Everyday voting, planning and shopping cost nothing.
+- `openrouter` — also free, but **50 requests/day** and its free capacity is shared, so
+  calls are throttled often. It also requires turning on *"Enable free endpoints that
+  may train on inputs"* at
+  [openrouter.ai/settings/privacy](https://openrouter.ai/settings/privacy), or every
+  call fails with a confusing 404 (the app detects this and says so).
+- `anthropic` — paid, best answers.
+
+Providers were compared rather than assumed. Groq and OpenRouter both expose an
+OpenAI-compatible API, so they share one code path in `lib/ai/client.ts` and differ
+only in base URL, key and model names.
+
+**Free-tier prompts may be used for training**, on Groq and OpenRouter alike, so
+**flatmates' names are stripped before anything leaves the server** — the model sees
+"Flatmate 1: veg, goal gain, allergic to peanuts". Nobody's age, height or weight is
+ever sent; only diet, goal, allergies, dislikes, dish names and how far off the day's
+nutrition targets are.
+
+A request is spent only when you add a *new* dish, refetch its ingredients, or press
+"Ask AI". Everyday voting, planning and shopping cost nothing.
 
 ### Three things learned the hard way about free models
 
@@ -138,11 +148,15 @@ actually calling the models, not by reading docs.
 2. **Turn thinking off.** Hybrid-reasoning models spend their whole budget reasoning
    about a task this mechanical. `reasoning: { enabled: false }` took one dish lookup
    from 90 seconds (and a truncated answer) to 2 seconds.
-3. **Free capacity is shared and throttles constantly.** A 429 usually means the
-   *provider* is busy, not that you are out of quota — check with
-   `curl https://openrouter.ai/api/v1/key -H "Authorization: Bearer $OPENROUTER_API_KEY"`.
-   The app sends a short fallback list so OpenRouter reroutes instead of failing, and
-   retries once on top of that.
+3. **Free capacity is shared, and a busy endpoint queues rather than refusing.**
+   OpenRouter's own fallback list only engages on an *error*, so a merely-slow model is
+   waited on until the hosting platform kills the request. The app therefore times each
+   attempt out itself (15s) and moves to a different model, with all attempts sharing
+   one 50s budget so the whole thing fits inside Vercel's 60s function limit.
+4. **The same parameter has different names per provider.** Groq rejects OpenRouter's
+   `reasoning: {enabled:false}` outright and wants `reasoning_effort: "none"`; Groq's
+   JSON decoder also rejects a schema containing `minItems`/`maxItems`. Both are sent
+   conditionally.
 
 Also worth knowing: OpenRouter writes SSE keep-alive comments into the body of slow
 non-streaming responses, so the body has to be cleaned before `JSON.parse`. And the
@@ -188,7 +202,7 @@ lib/
 ```
 
 **Stack:** Next.js 16 (App Router) · TypeScript · Tailwind v4 · Drizzle ORM ·
-Postgres · OpenRouter. Auth is email + password (bcrypt) with a signed JWT in an
+Postgres · Groq. Auth is email + password (bcrypt) with a signed JWT in an
 httpOnly cookie — no third-party auth service to sign up for.
 
 Hosting, database and AI are all on free tiers, so running this costs nothing.

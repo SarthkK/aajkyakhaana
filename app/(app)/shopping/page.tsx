@@ -4,20 +4,21 @@ import { useMemo, useState } from "react";
 import { Plus, Sparkles, Trash2, Check, Eraser } from "lucide-react";
 import { api, useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
-import { Button, Input, Sheet, Field, Select, Loading, ErrorNote, EmptyState, cx } from "@/components/ui";
+import { Button, Input, Sheet, Field, Select, ErrorNote, EmptyState, cx } from "@/components/ui";
+import { ShoppingListSkeleton } from "@/components/Skeleton";
 import { CATEGORY_LABELS, CATEGORY_ORDER } from "@/lib/shopping";
 import { addDays, todayIn } from "@/lib/dates";
 import { useSession } from "@/components/SessionProvider";
+import { useToast } from "@/components/Toast";
 import type { ShoppingItemView } from "@/lib/types";
 
 export default function ShoppingPage() {
   const { household } = useSession();
+  const toast = useToast();
   const { data, error, loading, reload, setData } = useApi<{ items: ShoppingItemView[] }>("/api/shopping");
   const [quick, setQuick] = useState("");
   const [adding, setAdding] = useState(false);
   const [generating, setGenerating] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
-  const [problem, setProblem] = useState<string | null>(null);
 
   const items = data?.items ?? [];
   const pending = items.filter((i) => !i.checked);
@@ -43,6 +44,7 @@ export default function ShoppingPage() {
     try {
       await api.patch(`/api/shopping/${item.id}`, { checked: !item.checked });
     } catch {
+      toast("That did not save — check your connection", { tone: "bad" });
       void reload();
     }
   }
@@ -51,7 +53,25 @@ export default function ShoppingPage() {
     setData((prev) => (prev ? { items: prev.items.filter((i) => i.id !== item.id) } : prev));
     try {
       await api.del(`/api/shopping/${item.id}`);
+      toast(`Removed ${item.name}`, {
+        tone: "info",
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void api
+              .post("/api/shopping", {
+                name: item.name,
+                quantity: item.quantity != null ? Number(item.quantity) : null,
+                unit: item.unit,
+                category: item.category,
+              })
+              .then(reload)
+              .catch(() => toast("Could not put it back", { tone: "bad" }));
+          },
+        },
+      });
     } catch {
+      toast("Could not remove that", { tone: "bad" });
       void reload();
     }
   }
@@ -64,15 +84,15 @@ export default function ShoppingPage() {
     try {
       await api.post("/api/shopping", { name });
       await reload();
+      toast(`${name} added to the list`);
     } catch (err) {
-      setProblem(err instanceof Error ? err.message : "Could not add that");
+      setQuick(name); // put it back so the typing is not lost
+      toast(err instanceof Error ? err.message : "Could not add that", { tone: "bad" });
     }
   }
 
   async function generate() {
     setGenerating(true);
-    setProblem(null);
-    setNote(null);
     try {
       const today = todayIn(household.timezone);
       const res = await api.post<{ added: number; skipped: number; message?: string }>("/api/shopping/generate", {
@@ -80,22 +100,25 @@ export default function ShoppingPage() {
         to: addDays(today, 6),
       });
       await reload();
-      setNote(
+      toast(
         res.message ??
           (res.added === 0
-            ? "Everything from this week's plan is already on the list."
-            : `Added ${res.added} item${res.added === 1 ? "" : "s"} from this week's plan.`),
+            ? "Everything planned this week is already on the list"
+            : `Added ${res.added} thing${res.added === 1 ? "" : "s"} from this week's plan`),
+        { tone: res.added === 0 ? "info" : "good" },
       );
     } catch (err) {
-      setProblem(err instanceof Error ? err.message : "Could not build the list");
+      toast(err instanceof Error ? err.message : "Could not build the list", { tone: "bad" });
     } finally {
       setGenerating(false);
     }
   }
 
   async function clearDone() {
+    const count = done.length;
     await api.post("/api/shopping/clear");
     await reload();
+    toast(`Cleared ${count} bought item${count === 1 ? "" : "s"}`, { tone: "info" });
   }
 
   return (
@@ -126,13 +149,8 @@ export default function ShoppingPage() {
           <Sparkles className="size-4 text-accent" /> Build from this week&apos;s plan
         </Button>
 
-        {note && (
-          <p className="text-sm text-muted bg-surface-2 border border-line rounded-2xl px-4 py-3 mb-4">{note}</p>
-        )}
-        {problem && <div className="mb-4"><ErrorNote>{problem}</ErrorNote></div>}
-
-        {loading && !data && <Loading />}
-        {error && <ErrorNote>{error}</ErrorNote>}
+        {loading && !data && <ShoppingListSkeleton />}
+        {error && !data && <ErrorNote>{error}</ErrorNote>}
 
         {data && pending.length === 0 && done.length === 0 && (
           <EmptyState

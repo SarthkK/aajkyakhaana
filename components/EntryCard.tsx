@@ -4,6 +4,7 @@ import { useState } from "react";
 import { MessageCircle, ThumbsDown, ThumbsUp, Sparkles } from "lucide-react";
 import { api } from "@/lib/client";
 import { cx, Avatar } from "@/components/ui";
+import { tap } from "@/lib/haptics";
 import type { PlanEntryView } from "@/lib/types";
 
 export function VegDot({ isVeg }: { isVeg: boolean }) {
@@ -35,6 +36,7 @@ export function EntryCard({
     if (busy) return;
     // Tapping the vote you already gave takes it back.
     const value = entry.myVote === next ? 0 : next;
+    tap(value === 0 ? 4 : 10);
     setBusy(true);
 
     // Optimistic — voting should feel instant on a phone.
@@ -139,7 +141,7 @@ function VoteButton({
       aria-label={label}
       aria-pressed={active}
       className={cx(
-        "inline-flex items-center gap-1 h-9 min-w-9 px-2 rounded-xl border text-xs font-semibold transition",
+        "inline-flex items-center gap-1 h-9 min-w-9 px-2 rounded-xl border text-xs font-semibold pressable",
         active
           ? tone === "good"
             ? "bg-good-soft border-good/40 text-good"

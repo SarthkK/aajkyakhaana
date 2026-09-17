@@ -7,7 +7,8 @@ import { useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
 import { DayBoard } from "@/components/DayBoard";
 import { DaySummaryCard } from "@/components/DaySummaryCard";
-import { Loading, ErrorNote } from "@/components/ui";
+import { ErrorNote } from "@/components/ui";
+import { DayBoardSkeleton, SummaryCardSkeleton } from "@/components/Skeleton";
 import { addDays, friendlyDate, weekdayOf, isValidDate } from "@/lib/dates";
 import type { PlanResponse, PlanEntryView } from "@/lib/types";
 
@@ -75,8 +76,15 @@ export default function DayPage({ params }: { params: Promise<{ date: string }> 
       />
 
       <div className="px-4 pt-4">
-        {loading && !data && <Loading />}
-        {error && <ErrorNote>{error}</ErrorNote>}
+        {loading && !data && (
+          <>
+            <div className="mb-4">
+              <SummaryCardSkeleton />
+            </div>
+            <DayBoardSkeleton filledSlots={1} />
+          </>
+        )}
+        {error && !data && <ErrorNote>{error}</ErrorNote>}
 
         {data && (
           <>

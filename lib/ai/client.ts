@@ -3,57 +3,94 @@ import "server-only";
 /**
  * One small wrapper over whichever model provider is configured.
  *
- * Default is OpenRouter, which has a free tier (models whose id ends in ":free").
- * Anthropic is kept as an option for when you want better answers and don't mind paying.
- * Both are asked for structured output the same way — by forcing a tool call — so the
- * rest of the app never has to care which one is in use.
+ * Groq and OpenRouter are both OpenAI-compatible, so they share a single code path and
+ * differ only in base URL, key and model names. Anthropic is kept for when you want
+ * better answers and don't mind paying. Every provider is asked for structured output
+ * the same way, so the rest of the app never has to care which one is in use.
  */
 
-export type Provider = "openrouter" | "anthropic";
+export type Provider = "groq" | "openrouter" | "anthropic";
+
+type ProviderConfig = {
+  keyEnv: string;
+  modelEnv: string;
+  fallbackEnv: string;
+  defaultModel: string;
+  /** Tried in order when the one before it is busy or too slow. */
+  defaultFallbacks: string[];
+};
+
+const PROVIDERS: Record<Provider, ProviderConfig> = {
+  groq: {
+    keyEnv: "GROQ_API_KEY",
+    modelEnv: "GROQ_MODEL",
+    fallbackEnv: "GROQ_FALLBACKS",
+    // Same Qwen as on OpenRouter, but on dedicated hardware with a far larger quota.
+    defaultModel: "qwen/qwen3.8-27b",
+    defaultFallbacks: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
+  },
+  openrouter: {
+    keyEnv: "OPENROUTER_API_KEY",
+    modelEnv: "OPENROUTER_MODEL",
+    fallbackEnv: "OPENROUTER_FALLBACKS",
+    defaultModel: "qwen/qwen3.8-27b:free",
+    defaultFallbacks: ["nex-agi/nex-n2.5-mini:free", "nvidia/nemotron-3-super-120b-a12b:free"],
+  },
+  anthropic: {
+    keyEnv: "ANTHROPIC_API_KEY",
+    modelEnv: "ANTHROPIC_MODEL",
+    fallbackEnv: "ANTHROPIC_FALLBACKS",
+    defaultModel: "claude-sonnet-5",
+    defaultFallbacks: [],
+  },
+};
+
+const OPENAI_COMPATIBLE: Partial<Record<Provider, { url: string; label: string; freeTierNote: string }>> = {
+  groq: {
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    label: "Groq",
+    freeTierNote: "Groq's free limit is 30 requests/minute and 14,400/day.",
+  },
+  openrouter: {
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    label: "OpenRouter",
+    freeTierNote: "OpenRouter's free limit is 20 per minute and 50 per day.",
+  },
+};
 
 export function provider(): Provider {
   const explicit = process.env.AI_PROVIDER?.toLowerCase();
-  if (explicit === "anthropic" || explicit === "openrouter") return explicit;
-  // Fall back to whichever key is actually present.
-  return process.env.ANTHROPIC_API_KEY && !process.env.OPENROUTER_API_KEY ? "anthropic" : "openrouter";
+  if (explicit === "groq" || explicit === "openrouter" || explicit === "anthropic") return explicit;
+  // Nothing declared: use whichever key is actually present, best free option first.
+  for (const name of ["groq", "openrouter", "anthropic"] as const) {
+    if (process.env[PROVIDERS[name].keyEnv]) return name;
+  }
+  return "groq";
 }
 
-const DEFAULT_MODELS: Record<Provider, string> = {
-  openrouter: "qwen/qwen3.8-27b:free",
-  anthropic: "claude-sonnet-5",
-};
-
-/**
- * Free endpoints are throttled by the upstream provider at random, independently of
- * your own daily quota. OpenRouter will walk this list in order when one is busy, so
- * a shared-capacity 429 turns into a slightly different answer instead of an error.
- * All of these were checked against the real dish schema; ordered best-first.
- */
-const OPENROUTER_FALLBACKS = [
-  "nex-agi/nex-n2.5-mini:free",
-  "nvidia/nemotron-3-super-120b-a12b:free",
-];
-
-function openRouterModelChain(): string[] {
-  const primary = aiModel();
-  const configured = process.env.OPENROUTER_FALLBACKS?.split(",").map((m) => m.trim()).filter(Boolean);
-  const chain = [primary, ...(configured ?? OPENROUTER_FALLBACKS)];
-  // OpenRouter rejects a routing list longer than three.
-  return [...new Set(chain)].slice(0, 3);
+function config(): ProviderConfig {
+  return PROVIDERS[provider()];
 }
 
 export function aiModel() {
-  const p = provider();
-  return (p === "anthropic" ? process.env.ANTHROPIC_MODEL : process.env.OPENROUTER_MODEL) || DEFAULT_MODELS[p];
+  const c = config();
+  return process.env[c.modelEnv] || c.defaultModel;
+}
+
+/** Primary model plus the fallbacks we walk when it is busy or slow. */
+function modelChain(): string[] {
+  const c = config();
+  const configured = process.env[c.fallbackEnv]?.split(",").map((m) => m.trim()).filter(Boolean);
+  return [...new Set([aiModel(), ...(configured ?? c.defaultFallbacks)])].slice(0, 3);
 }
 
 export function aiEnabled() {
-  return Boolean(provider() === "anthropic" ? process.env.ANTHROPIC_API_KEY : process.env.OPENROUTER_API_KEY);
+  return Boolean(process.env[config().keyEnv]);
 }
 
 /** The env var the user needs to set, used in the "AI is off" messages. */
 export function missingKeyName() {
-  return provider() === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENROUTER_API_KEY";
+  return config().keyEnv;
 }
 
 export type ToolDef = {
@@ -81,7 +118,7 @@ export async function askForObject<T>(opts: {
   tool: ToolDef;
   maxTokens?: number;
 }): Promise<T> {
-  return provider() === "anthropic" ? askAnthropic<T>(opts) : askOpenRouter<T>(opts);
+  return provider() === "anthropic" ? askAnthropic<T>(opts) : askOpenAICompatible<T>(opts);
 }
 
 /* -------------------------------- openrouter ------------------------------- */
@@ -105,14 +142,14 @@ const RETRY_DELAY_MS = 800;
  * The whole thing has to finish inside the hosting platform's function limit (60s on
  * Vercel), so every attempt shares one budget instead of getting a fresh timeout.
  */
-async function askOpenRouter<T>(opts: {
+async function askOpenAICompatible<T>(opts: {
   system: string;
   prompt: string;
   tool: ToolDef;
   maxTokens?: number;
 }): Promise<T> {
   const deadline = Date.now() + TOTAL_BUDGET_MS;
-  const chain = openRouterModelChain();
+  const chain = modelChain();
   let lastError: unknown;
 
   for (const [index, model] of chain.entries()) {
@@ -132,11 +169,11 @@ async function askOpenRouter<T>(opts: {
     }
   }
 
+  // Keep the real reason — "rate limited" and "returned junk" need different responses
+  // from whoever reads it. Only note the chain length, rather than replacing the cause.
   if (lastError instanceof AiError) {
-    throw new AiError(
-      `Every free model was busy just now (${chain.length} tried). Give it a minute and try again.`,
-      true,
-    );
+    if (chain.length === 1) throw lastError;
+    throw new AiError(`${lastError.message} (tried ${chain.length} models)`, lastError.retryable);
   }
   throw lastError ?? new AiError("The AI call failed. Try again.", true);
 }
@@ -166,25 +203,27 @@ async function doCall<T>(
   model: string,
   timeoutMs: number,
 ): Promise<T> {
-  const key = process.env.OPENROUTER_API_KEY;
-  if (!key) throw new AiError("AI is not configured. Add OPENROUTER_API_KEY to your environment.");
-
+  const api = OPENAI_COMPATIBLE[provider()];
+  const key = process.env[config().keyEnv];
+  if (!api || !key) {
+    throw new AiError(`AI is not configured. Add ${config().keyEnv} to your environment.`);
+  }
 
   let res: Response;
   try {
-    res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    res = await fetch(api.url, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
-        // Optional attribution headers OpenRouter uses for its leaderboards.
+        // Attribution headers OpenRouter uses for its leaderboards; ignored elsewhere.
         "HTTP-Referer": process.env.APP_URL || "http://localhost:3000",
         "X-Title": "Kya Khaana",
       },
       body: JSON.stringify({
         model,
-        // Prefer whichever upstream provider is currently fastest for this model.
-        provider: { sort: "throughput" },
+        // OpenRouter-only: prefer whichever upstream is currently fastest. Ignored by Groq.
+        ...(provider() === "openrouter" ? { provider: { sort: "throughput" } } : {}),
         max_tokens: opts.maxTokens ?? 2000,
         temperature: 0.7,
         messages: [
@@ -206,20 +245,21 @@ async function doCall<T>(
             schema: opts.tool.input_schema,
           },
         },
-        // Hybrid-thinking models take ~90s with reasoning on and ~2s with it off,
-        // for no gain on a task this mechanical. Ignored by models without it.
-        reasoning: { enabled: false },
+        // Hybrid-thinking models take ~90s with reasoning on and ~2s with it off, for
+        // no gain on a task this mechanical. The two providers spell it differently,
+        // and each rejects the other's spelling outright.
+        ...(provider() === "groq" ? { reasoning_effort: "none" } : { reasoning: { enabled: false } }),
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {
-      throw new AiError("The free model took too long to answer. Try again.", true);
+      throw new AiError("The model took too long to answer. Try again.", true);
     }
-    throw new AiError("Could not reach OpenRouter. Check your connection.", true);
+    throw new AiError(`Could not reach ${api.label}. Check your connection.`, true);
   }
 
-  if (!res.ok) throw openRouterError(res.status, await res.text());
+  if (!res.ok) throw providerError(res.status, await res.text(), api);
 
   const body = await readBody(res);
 
@@ -260,13 +300,13 @@ async function readBody(res: Response): Promise<OpenRouterResponse> {
     .join("\n")
     .trim();
 
-  if (!cleaned) throw new AiError("OpenRouter sent back an empty response. Try again.", true);
+  if (!cleaned) throw new AiError("The provider sent back an empty response. Try again.", true);
 
   try {
     return JSON.parse(cleaned) as OpenRouterResponse;
   } catch {
-    console.error("[ai] unparseable OpenRouter body:", text.slice(0, 200));
-    throw new AiError("OpenRouter sent back something unreadable. Try again.", true);
+    console.error("[ai] unparseable response body:", text.slice(0, 200));
+    throw new AiError("The provider sent back something unreadable. Try again.", true);
   }
 }
 
@@ -282,7 +322,11 @@ type OpenRouterResponse = {
   }[];
 };
 
-function openRouterError(status: number, text: string): AiError {
+function providerError(
+  status: number,
+  text: string,
+  api: { label: string; freeTierNote: string },
+): AiError {
   let detail = text.slice(0, 300);
   try {
     const parsed = JSON.parse(text) as { error?: { message?: string } };
@@ -291,26 +335,33 @@ function openRouterError(status: number, text: string): AiError {
     // keep the raw text
   }
 
-  if (status === 401) return new AiError("OpenRouter rejected the API key. Check OPENROUTER_API_KEY.");
-  if (status === 402) return new AiError("This model is not free on your OpenRouter account. Pick a model ending in ':free'.");
-  if (status === 429) {
-    return new AiError(
-      "OpenRouter's free limit is reached (20 per minute, 50 per day). Try again in a bit.",
-      true,
-    );
+  const keyEnv = config().keyEnv;
+  const modelEnv = config().modelEnv;
+
+  if (status === 401 || status === 403) {
+    return new AiError(`${api.label} rejected the API key. Check ${keyEnv}.`);
   }
-  if (status === 404) {
-    // Free endpoints are only offered to accounts that allow training on inputs,
-    // and OpenRouter reports that refusal as a 404 rather than a 403.
+  if (status === 402) {
+    return new AiError(`This model is not free on your ${api.label} account. Pick a free one.`);
+  }
+  if (status === 429) {
+    return new AiError(`${api.freeTierNote} Try again in a bit.`, true);
+  }
+  if (status === 404 || status === 400) {
+    // OpenRouter only offers free endpoints to accounts that allow training on
+    // inputs, and reports that refusal as a 404 rather than a 403.
     if (/data policy/i.test(detail)) {
       return new AiError(
         "OpenRouter is blocking free models for this account. Turn on 'Enable free endpoints that may train on inputs' at openrouter.ai/settings/privacy.",
       );
     }
-    return new AiError("OpenRouter does not know that model. Check OPENROUTER_MODEL.");
+    if (/model/i.test(detail)) {
+      return new AiError(`${api.label} does not know that model. Check ${modelEnv}. (${detail})`);
+    }
+    return new AiError(`${api.label} rejected the request (${status}): ${detail}`);
   }
-  if (status >= 500) return new AiError("OpenRouter is having trouble right now. Try again.", true);
-  return new AiError(`OpenRouter error (${status}): ${detail}`);
+  if (status >= 500) return new AiError(`${api.label} is having trouble right now. Try again.`, true);
+  return new AiError(`${api.label} error (${status}): ${detail}`);
 }
 
 /** Free models like to wrap JSON in prose or code fences — dig it out anyway. */

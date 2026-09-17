@@ -12,11 +12,12 @@ import {
   Segmented,
   Select,
   Card,
-  Loading,
   ErrorNote,
   Avatar,
   cx,
 } from "@/components/ui";
+import { ProfileSkeleton } from "@/components/Skeleton";
+import { useToast } from "@/components/Toast";
 import { useSession } from "@/components/SessionProvider";
 import {
   ACTIVITY_LABELS,
@@ -70,7 +71,9 @@ export default function MePage() {
     return (
       <>
         <AppHeader title="You & your flat" />
-        <Loading />
+        <div className="px-4 pt-4">
+          <ProfileSkeleton />
+        </div>
       </>
     );
   }
@@ -110,6 +113,7 @@ function MeForm({
 }) {
   const router = useRouter();
   const { household } = useSession();
+  const toast = useToast();
 
   // Seeded once from the server copy; this component remounts if the user changes.
   const [form, setForm] = useState({
@@ -156,8 +160,14 @@ function MeForm({
       void reloadMembers();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      toast(
+        fresh.targets
+          ? `Saved — ${fresh.targets.calories} kcal and ${fresh.targets.protein_g}g protein a day`
+          : "Saved",
+      );
     } catch (err) {
       setProblem(err instanceof Error ? err.message : "Could not save");
+      toast("Could not save that", { tone: "bad" });
     } finally {
       setSaving(false);
     }
@@ -174,6 +184,7 @@ function MeForm({
       await navigator.clipboard.writeText(household.code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+      toast(`Code ${household.code} copied — send it to your flatmates`, { tone: "info" });
     } catch {
       setProblem("Could not copy — the code is " + household.code);
     }

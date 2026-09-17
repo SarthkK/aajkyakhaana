@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
+import useSWR, { preload, mutate as globalMutate } from "swr";
 
 export class HttpError extends Error {
   status: number;
@@ -37,50 +38,67 @@ export const api = {
 };
 
 /**
- * Minimal data hook: fetch on mount, expose a refetch, never set state after unmount.
- * To force a refetch when the path has not changed, give the component a new `key`
- * so it remounts.
+ * Data hook backed by SWR, keeping the same shape the app already uses.
+ *
+ * The important behaviours for this app:
+ * - cached per URL, so going back to a tab renders instantly from memory and
+ *   revalidates in the background instead of showing a spinner again;
+ * - `keepPreviousData` holds the old screen in place while a new URL loads, which
+ *   is what stops the layout jumping when you page between days;
+ * - identical requests fired at the same moment are deduped into one.
  */
 export function useApi<T>(path: string | null) {
-  const [data, setData] = useState<T | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(Boolean(path));
-  const alive = useRef(true);
-  const latest = useRef(0);
+  const { data, error, isLoading, mutate } = useSWR<T>(path, fetcher, {
+    keepPreviousData: true,
+    revalidateOnFocus: true,
+    // The plan changes when a flatmate votes, but not second to second.
+    dedupingInterval: 4000,
+    errorRetryCount: 2,
+  });
 
-  useEffect(() => {
-    alive.current = true;
-    return () => {
-      alive.current = false;
-    };
-  }, []);
+  const reload = useCallback(async () => {
+    await mutate();
+  }, [mutate]);
 
-  const load = useCallback(async () => {
-    if (!path) return;
+  /** Optimistic local update; pass a value or an updater, same as useState. */
+  const setData = useCallback(
+    (next: T | null | ((prev: T | null) => T | null)) => {
+      void mutate(
+        (prev) => {
+          const resolved =
+            typeof next === "function" ? (next as (p: T | null) => T | null)(prev ?? null) : next;
+          return resolved ?? undefined;
+        },
+        { revalidate: false },
+      );
+    },
+    [mutate],
+  );
 
-    // Tag each request so a slow earlier response cannot overwrite a newer one.
-    const ticket = ++latest.current;
-    const settle = (fn: () => void) => {
-      if (alive.current && ticket === latest.current) fn();
-    };
+  return {
+    data: data ?? null,
+    error: error instanceof Error ? error.message : null,
+    // Only a first load counts as loading; a background revalidation must not
+    // swap a rendered screen back to a skeleton.
+    loading: isLoading && data === undefined,
+    reload,
+    setData,
+  };
+}
 
-    settle(() => setLoading(true));
-    try {
-      const result = await api.get<T>(path);
-      settle(() => {
-        setData(result);
-        setError(null);
-      });
-    } catch (err) {
-      settle(() => setError(err instanceof Error ? err.message : "Could not load"));
-    } finally {
-      settle(() => setLoading(false));
-    }
-  }, [path]);
+const fetcher = <T,>(path: string) => api.get<T>(path);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+/**
+ * Warms the cache for a URL before anything renders it. Used to load the other
+ * tabs while the person is still reading the current one, so switching is instant.
+ */
+export function prefetch(path: string) {
+  return preload(path, fetcher);
+}
 
-  return { data, error, loading, reload: load, setData };
+/** Drops cached responses whose URL matches, so the next render refetches. */
+export function invalidate(match: (path: string) => boolean) {
+  return globalMutate((key) => typeof key === "string" && match(key), undefined, {
+    revalidate: true,
+  });
 }

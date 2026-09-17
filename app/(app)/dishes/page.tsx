@@ -5,7 +5,8 @@ import Link from "next/link";
 import { Plus, Search, AlertCircle, ChevronRight } from "lucide-react";
 import { api, useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
-import { Button, Input, Field, Sheet, Loading, ErrorNote, EmptyState, Segmented, Card } from "@/components/ui";
+import { Button, Input, Field, Sheet, ErrorNote, EmptyState, Segmented, Card } from "@/components/ui";
+import { DishListSkeleton } from "@/components/Skeleton";
 import { VegDot } from "@/components/EntryCard";
 import type { DishWithIngredients } from "@/lib/types";
 
@@ -59,8 +60,8 @@ export default function DishesPage() {
           <Segmented value={course} onChange={setCourse} options={COURSES} />
         </div>
 
-        {loading && !data && <Loading />}
-        {error && <ErrorNote>{error}</ErrorNote>}
+        {loading && !data && <DishListSkeleton />}
+        {error && !data && <ErrorNote>{error}</ErrorNote>}
 
         {data && filtered.length === 0 && (
           <EmptyState

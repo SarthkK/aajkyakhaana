@@ -6,6 +6,7 @@ import { api, useApi } from "@/lib/client";
 import { Sheet, Input, Button, Loading, ErrorNote, cx } from "@/components/ui";
 import { VegDot } from "@/components/EntryCard";
 import { SLOT_LABELS, type Slot } from "@/lib/dates";
+import { useToast } from "@/components/Toast";
 import type { DishWithIngredients, SuggestionView } from "@/lib/types";
 
 export function AddMealSheet({
@@ -21,6 +22,7 @@ export function AddMealSheet({
   slot: Slot;
   onAdded: () => void;
 }) {
+  const toast = useToast();
   const { data, loading } = useApi<{ dishes: DishWithIngredients[] }>(open ? "/api/dishes" : null);
   const [query, setQuery] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -55,14 +57,26 @@ export function AddMealSheet({
     setBusyId(key);
     setError(null);
     try {
-      const res = await api.post<{ entry: { id: string }; createdDish: { id: string } | null }>("/api/plan", {
+      const res = await api.post<{ entry: { id: string }; createdDish: { id: string; name: string } | null }>("/api/plan", {
         date,
         slot,
         ...body,
       });
-      // A brand new dish has no ingredients yet — look them up in the background.
+      const name = res.createdDish?.name ?? dishes.find((d) => d.id === body.dishId)?.name ?? "That";
+      toast(`${name} is on for ${SLOT_LABELS[slot].toLowerCase()}`);
+
+      // A brand new dish has no ingredients yet — look them up in the background, so
+      // the sheet can close immediately instead of holding everyone up.
       if (res.createdDish) {
-        void api.post(`/api/dishes/${res.createdDish.id}/enrich`).then(onAdded).catch(() => {});
+        void api
+          .post(`/api/dishes/${res.createdDish.id}/enrich`)
+          .then(() => {
+            toast(`Got the ingredients for ${name}`, { tone: "info" });
+            onAdded();
+          })
+          .catch(() => {
+            toast(`Couldn't look up ${name}'s ingredients — add them by hand`, { tone: "bad" });
+          });
       }
       onAdded();
       reset();

@@ -34,7 +34,7 @@ export function Button({ variant = "primary", size = "md", loading, className, c
       {...rest}
       disabled={disabled || loading}
       className={cx(
-        "inline-flex items-center justify-center gap-2 font-medium transition select-none",
+        "inline-flex items-center justify-center gap-2 font-medium select-none pressable",
         VARIANTS[variant],
         SIZES[size],
         className,
@@ -114,7 +114,7 @@ export function Segmented<T extends string>({
           type="button"
           onClick={() => onChange(o.value)}
           className={cx(
-            "shrink-0 px-3.5 h-9 rounded-full text-sm font-medium border transition",
+            "shrink-0 px-3.5 h-9 rounded-full text-sm font-medium border pressable",
             value === o.value
               ? "bg-accent text-white border-accent"
               : "bg-surface text-muted border-line active:bg-surface-2",

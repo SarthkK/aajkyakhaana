@@ -8,6 +8,7 @@ import { Sheet, Button, Input, Loading, ErrorNote, Avatar, cx } from "@/componen
 import { VegDot } from "@/components/EntryCard";
 import { NutritionChips } from "@/components/Nutrition";
 import { useSession } from "@/components/SessionProvider";
+import { useToast } from "@/components/Toast";
 import type { PlanEntryView, DishWithIngredients, CommentView } from "@/lib/types";
 
 function timeAgo(iso: string) {
@@ -28,6 +29,7 @@ export function EntryDetailSheet({
   onChanged: () => void;
 }) {
   const { user } = useSession();
+  const toast = useToast();
   const dishId = entry?.dishId ?? null;
 
   const { data: dishData, reload: reloadDish } = useApi<{ dish: DishWithIngredients }>(
@@ -65,11 +67,37 @@ export function EntryDetailSheet({
 
   async function removeEntry() {
     if (!entry) return;
+    const removed = entry;
     setBusy(true);
     try {
-      await api.del(`/api/plan/${entry.id}`);
+      await api.del(`/api/plan/${removed.id}`);
       onChanged();
       onClose();
+
+      // Taking something off the plan is the one destructive tap in the app, and it is
+      // easy to hit by accident, so offer the way back. Votes and comments do not
+      // survive — the dish and its slot do, which is what people actually want back.
+      toast(`Took ${removed.dish.name} off ${removed.slot}`, {
+        tone: "info",
+        action: {
+          label: "Undo",
+          onClick: () => {
+            void api
+              .post("/api/plan", {
+                date: removed.date,
+                slot: removed.slot,
+                dishId: removed.dishId,
+                servings: removed.servings ?? undefined,
+                note: removed.note ?? undefined,
+              })
+              .then(() => {
+                toast(`${removed.dish.name} is back on`);
+                onChanged();
+              })
+              .catch(() => toast("Could not put it back", { tone: "bad" }));
+          },
+        },
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not remove it");
       setBusy(false);

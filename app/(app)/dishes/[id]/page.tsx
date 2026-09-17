@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { Plus, RefreshCw, Trash2, Check } from "lucide-react";
 import { api, useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
-import { Button, Input, Field, Select, Segmented, Loading, ErrorNote, Card, cx } from "@/components/ui";
+import { Button, Input, Field, Select, Segmented, ErrorNote, Card, cx } from "@/components/ui";
+import { DishEditorSkeleton } from "@/components/Skeleton";
+import { useToast } from "@/components/Toast";
 import { NutritionChips } from "@/components/Nutrition";
 import { MACRO_KEYS, NUTRIENT_LABELS, NUTRIENT_UNITS } from "@/lib/nutrition";
 import type { DishWithIngredients, Ingredient, Nutrition } from "@/lib/types";
@@ -43,7 +45,9 @@ export default function DishPage({ params }: { params: Promise<{ id: string }> }
     return (
       <>
         <AppHeader title="Dish" back="/dishes" />
-        <Loading />
+        <div className="px-4 pt-4">
+          <DishEditorSkeleton />
+        </div>
       </>
     );
   }
@@ -79,6 +83,7 @@ function DishEditor({
   onRefetched: () => void;
 }) {
   const router = useRouter();
+  const toast = useToast();
 
   // Seeded from the server copy once; the remount key above handles refreshes.
   const [name, setName] = useState(dish.name);
@@ -132,8 +137,10 @@ function DishEditor({
       await reload();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      toast(`Saved ${name}`);
     } catch (err) {
       setProblem(err instanceof Error ? err.message : "Could not save");
+      toast("Could not save that", { tone: "bad" });
     } finally {
       setSaving(false);
     }
@@ -146,8 +153,10 @@ function DishEditor({
       await api.post(`/api/dishes/${dish.id}/enrich`);
       await reload();
       onRefetched();
+      toast(`Fetched ${dish.name} again`);
     } catch (err) {
       setProblem(err instanceof Error ? err.message : "Lookup failed");
+      toast(err instanceof Error ? err.message : "Lookup failed", { tone: "bad" });
     } finally {
       setRefetching(false);
     }

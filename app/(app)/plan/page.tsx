@@ -4,7 +4,8 @@ import Link from "next/link";
 import { ChevronRight, ShoppingCart } from "lucide-react";
 import { useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
-import { Card, Loading, ErrorNote, cx } from "@/components/ui";
+import { Card, ErrorNote, cx } from "@/components/ui";
+import { PlanListSkeleton } from "@/components/Skeleton";
 import { VegDot } from "@/components/EntryCard";
 import { SLOTS, SLOT_LABELS, SLOT_EMOJI, friendlyDate, weekdayOf, addDays } from "@/lib/dates";
 import type { PlanResponse } from "@/lib/types";
@@ -32,8 +33,8 @@ export default function PlanPage() {
       />
 
       <div className="px-4 pt-4 space-y-2.5">
-        {loading && !data && <Loading />}
-        {error && <ErrorNote>{error}</ErrorNote>}
+        {loading && !data && <PlanListSkeleton />}
+        {error && !data && <ErrorNote>{error}</ErrorNote>}
 
         {data &&
           dates.map((date) => {

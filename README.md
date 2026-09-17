@@ -57,7 +57,31 @@ Open http://localhost:3000.
 | `npm run db:generate` | Write a versioned SQL migration into `drizzle/` |
 | `npm run db:studio` | Browse the data in a GUI |
 
-## Deploying it for free
+## Live deployment
+
+| | |
+|---|---|
+| App | https://aajkyakhaana.vercel.app |
+| Hosting | Vercel, functions pinned to `sin1` (Singapore) |
+| Database | Neon project `aajkyakhaana-sg`, Singapore, Postgres 18 |
+| Production DB | `main` branch — what the live site uses |
+| Development DB | `dev` branch — used by preview deploys **and** local `npm run dev` |
+
+Production and development have separate `JWT_SECRET`s, so a session from one is not
+valid on the other. Pushing to `main` on GitHub redeploys production; every other
+branch gets a preview deployment pointed at the `dev` database.
+
+To reset the dev database without touching production, delete and recreate the branch:
+
+```bash
+npx neonctl branches delete dev --project-id bitter-fog-01343191
+npx neonctl branches create --project-id bitter-fog-01343191 --name dev
+DATABASE_URL="$(npx neonctl connection-string dev --project-id bitter-fog-01343191 --pooled)" \
+  npx drizzle-kit push --force
+```
+
+## Deploying it yourself
+
 
 **Database — [Neon](https://neon.tech).** Create a project, copy the **pooled**
 connection string (it has `-pooler` in the host). Keep `?sslmode=require`.

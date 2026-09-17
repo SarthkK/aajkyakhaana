@@ -86,33 +86,68 @@ export async function askForObject<T>(opts: {
 
 /* -------------------------------- openrouter ------------------------------- */
 
+/**
+ * Everything here has to finish inside the hosting platform's function limit (60s on
+ * Vercel), otherwise the request is killed and the caller gets a raw gateway timeout
+ * instead of a message telling them to try again. So the retry shares one budget with
+ * the first attempt rather than getting a fresh timeout of its own.
+ */
+const TOTAL_BUDGET_MS = 50_000;
+const ATTEMPT_BUDGET_MS = 15_000;
+const RETRY_DELAY_MS = 800;
+
+/**
+ * Free endpoints queue rather than refuse when they are busy, and OpenRouter's own
+ * fallback list only engages on an *error* — a model that is merely slow is waited
+ * on indefinitely. So we time each attempt out ourselves and move down the chain,
+ * which turns "congested for two minutes" into "answered by the second model".
+ *
+ * The whole thing has to finish inside the hosting platform's function limit (60s on
+ * Vercel), so every attempt shares one budget instead of getting a fresh timeout.
+ */
 async function askOpenRouter<T>(opts: {
   system: string;
   prompt: string;
   tool: ToolDef;
   maxTokens?: number;
 }): Promise<T> {
-  try {
-    return await callOpenRouter<T>(opts);
-  } catch (err) {
-    // Free endpoints get throttled by the upstream provider at random, separately
-    // from the daily quota. One retry turns most of those into a normal success.
-    if (err instanceof AiError && err.retryable) {
-      await new Promise((r) => setTimeout(r, 1500));
-      return callOpenRouter<T>(opts);
+  const deadline = Date.now() + TOTAL_BUDGET_MS;
+  const chain = openRouterModelChain();
+  let lastError: unknown;
+
+  for (const [index, model] of chain.entries()) {
+    const remaining = deadline - Date.now();
+    if (remaining < 4_000) break;
+
+    try {
+      return await callOpenRouter<T>(opts, model, Math.min(ATTEMPT_BUDGET_MS, remaining));
+    } catch (err) {
+      lastError = err;
+      // A real refusal (bad key, bad request) will fail the same way on every model.
+      if (!(err instanceof AiError) || !err.retryable) throw err;
+      if (index < chain.length - 1) {
+        console.log(`[ai] ${model} did not answer in time, trying ${chain[index + 1]}`);
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+      }
     }
-    throw err;
   }
+
+  if (lastError instanceof AiError) {
+    throw new AiError(
+      `Every free model was busy just now (${chain.length} tried). Give it a minute and try again.`,
+      true,
+    );
+  }
+  throw lastError ?? new AiError("The AI call failed. Try again.", true);
 }
 
-async function callOpenRouter<T>(opts: {
-  system: string;
-  prompt: string;
-  tool: ToolDef;
-  maxTokens?: number;
-}): Promise<T> {
+async function callOpenRouter<T>(
+  opts: { system: string; prompt: string; tool: ToolDef; maxTokens?: number },
+  model: string,
+  timeoutMs: number,
+): Promise<T> {
   try {
-    return await doCall<T>(opts);
+    return await doCall<T>(opts, model, timeoutMs);
   } catch (err) {
     if (err instanceof AiError) throw err;
     // A timeout can fire while the body is still being read, which lands here as a
@@ -126,17 +161,14 @@ async function callOpenRouter<T>(opts: {
   }
 }
 
-async function doCall<T>(opts: {
-  system: string;
-  prompt: string;
-  tool: ToolDef;
-  maxTokens?: number;
-}): Promise<T> {
+async function doCall<T>(
+  opts: { system: string; prompt: string; tool: ToolDef; maxTokens?: number },
+  model: string,
+  timeoutMs: number,
+): Promise<T> {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new AiError("AI is not configured. Add OPENROUTER_API_KEY to your environment.");
 
-  const chain = openRouterModelChain();
-  const model = chain[0];
 
   let res: Response;
   try {
@@ -151,8 +183,8 @@ async function doCall<T>(opts: {
       },
       body: JSON.stringify({
         model,
-        // OpenRouter falls through this list when a provider is busy or errors.
-        models: chain,
+        // Prefer whichever upstream provider is currently fastest for this model.
+        provider: { sort: "throughput" },
         max_tokens: opts.maxTokens ?? 2000,
         temperature: 0.7,
         messages: [
@@ -178,7 +210,7 @@ async function doCall<T>(opts: {
         // for no gain on a task this mechanical. Ignored by models without it.
         reasoning: { enabled: false },
       }),
-      signal: AbortSignal.timeout(55_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (err) {
     if (err instanceof Error && err.name === "TimeoutError") {

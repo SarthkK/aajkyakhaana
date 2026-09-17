@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Kya Khaana">
+  <rect width="512" height="512" rx="112" fill="#e0700f"/>
+  <path d="M96 236h320c0 88-71.6 160-160 160S96 324 96 236Z" fill="#fff"/>
+  <rect x="72" y="404" width="368" height="34" rx="17" fill="#fff"/>
+  <g fill="#fff" opacity="0.92">
+    <rect x="196" y="96" width="22" height="104" rx="11"/>
+    <rect x="245" y="72" width="22" height="128" rx="11"/>
+    <rect x="294" y="96" width="22" height="104" rx="11"/>
+  </g>
+</svg>

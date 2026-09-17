@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789621847460,
+      "tag": "0000_motionless_terrax",
+      "breakpoints": true
+    }
+  ]
+}

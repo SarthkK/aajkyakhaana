@@ -45,6 +45,10 @@ npm run db:push     # creates the schema
 npm run dev
 ```
 
+The app builds without any environment variables — the database connects on first
+query, not on import — so `npm run build` works on a fresh clone. It will of course
+refuse to serve a request until `DATABASE_URL` is set.
+
 Open http://localhost:3000.
 
 ### Scripts

@@ -10,10 +10,12 @@ process.env.OPENROUTER_FALLBACKS = "qwen/qwen3.8-27b:free";
 
 const { askForObject, AiError } = await import("../lib/ai/client.ts");
 
-const tool = {
+const request = {
   name: "save",
   description: "save it",
-  input_schema: { type: "object", properties: { dish: { type: "string" } }, required: ["dish"] },
+  schema: { type: "object", properties: { dish: { type: "string" } }, required: ["dish"] },
+  system: "s",
+  prompt: "p",
 };
 
 const payload = { dish: "Rajma Chawal" };
@@ -34,7 +36,7 @@ function mock(status: number, body: unknown, raw?: string) {
 }
 
 async function attempt() {
-  return askForObject({ system: "s", prompt: "p", tool });
+  return askForObject(request);
 }
 
 console.log("\nstructured answers:");

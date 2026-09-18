@@ -6,16 +6,17 @@ import { api } from "@/lib/client";
 import { Button, Card, cx } from "@/components/ui";
 import { useToast } from "@/components/Toast";
 import { logClient } from "@/lib/log-client";
+import { detectPlatform, pushPossible } from "@/lib/platform";
+import { InstallGuide } from "@/components/InstallGuide";
 
 /** Works out where this browser stands, without touching React state. */
 async function currentState(): Promise<State> {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-    // iOS only exposes the Push API to apps added to the home screen.
-    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    const standalone =
-      window.matchMedia("(display-mode: standalone)").matches ||
-      (window.navigator as { standalone?: boolean }).standalone === true;
-    return isIOS && !standalone ? "needs-install" : "unsupported";
+  const platform = detectPlatform();
+
+  if (!pushPossible(platform)) {
+    // On iPhone the Push API simply does not exist until the app is on the home
+    // screen, so "needs install" is the honest answer rather than "unsupported".
+    return platform.requiresInstallForPush && !platform.standalone ? "needs-install" : "unsupported";
   }
 
   if (Notification.permission === "denied") return "blocked";
@@ -44,6 +45,7 @@ export function NotificationSetting({
   const toast = useToast();
   const [state, setState] = useState<State>("off");
   const [busy, setBusy] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   // Reading the browser's permission and subscription is exactly the "sync with an
   // external system" case effects exist for, so the state lands in the promise callback.
@@ -130,13 +132,19 @@ export function NotificationSetting({
               : state === "blocked"
                 ? "Blocked in your browser settings — you'll need to allow them there first."
                 : state === "needs-install"
-                  ? "On iPhone, add Kya Khaana to your home screen first, then come back here."
+                  ? "On iPhone, notifications only work once the app is on your home screen."
                   : state === "unsupported"
                     ? "This browser can't do notifications."
                     : "Get told when someone adds a meal or replies, instead of checking."}
           </p>
         </div>
       </div>
+
+      {state === "needs-install" && (
+        <Button className="w-full" onClick={() => setShowGuide(true)}>
+          Show me how
+        </Button>
+      )}
 
       {(state === "off" || state === "on") && (
         <Button
@@ -173,6 +181,7 @@ export function NotificationSetting({
           ))}
         </div>
       )}
+      <InstallGuide open={showGuide} onClose={() => setShowGuide(false)} platform={detectPlatform()} />
     </Card>
   );
 }

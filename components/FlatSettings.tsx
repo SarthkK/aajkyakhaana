@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Clock, CalendarX } from "lucide-react";
 import { api } from "@/lib/client";
-import { Card, Input, Field, cx } from "@/components/ui";
+import { Card, Input, cx } from "@/components/ui";
 import { useToast } from "@/components/Toast";
 import type { HouseholdInfo } from "@/lib/types";
 
@@ -64,17 +64,20 @@ export function FlatSettings({ household }: { household: HouseholdInfo }) {
           After this time the meal stops taking votes and whichever dish is ahead is the
           one being made. Set it a little before {household.cookName ?? "your cook"} arrives.
         </p>
-        <div className="grid grid-cols-3 gap-2">
+        {/* Stacked rather than three across: a native time input with an AM/PM
+            segment does not fit in a third of a phone's width. */}
+        <div className="divide-y divide-line rounded-2xl border border-line overflow-hidden">
           {SLOT_FIELDS.map(({ key, label }) => (
-            <Field key={key} label={label}>
+            <label key={key} className="flex items-center justify-between gap-3 px-3.5 py-2.5 bg-surface">
+              <span className="text-sm">{label}</span>
               <Input
                 type="time"
                 value={locks[key]}
                 onChange={(e) => setLocks((prev) => ({ ...prev, [key]: e.target.value }))}
                 onBlur={() => void save({ [key]: locks[key] }, `${label} settles at ${locks[key]}`)}
-                className="py-2 px-3 text-center"
+                className="w-auto py-1.5 px-3 text-center"
               />
-            </Field>
+            </label>
           ))}
         </div>
       </div>

@@ -34,35 +34,59 @@ export function normalizeName(name: string) {
   return name.trim().toLowerCase().replace(/\s+/g, " ").replace(/\(.*?\)/g, "").trim();
 }
 
-/** Combines the same ingredient across every planned dish into one line each. */
-export function mergeItems(items: RawItem[]): (RawItem & { key: string })[] {
-  const merged = new Map<string, { name: string; qty: number | null; base: string; category: string; key: string }>();
+export type MergedItem = RawItem & { key: string; note: string | null };
+
+/**
+ * Combines the same ingredient across every planned dish into one line.
+ *
+ * Quantities in the same unit family add up (500 g + 1 kg = 1.5 kg). Where two dishes
+ * ask for the same thing in genuinely different units — one recipe says "2 onions",
+ * another says "200 g onion" — there is no honest conversion, so rather than print
+ * Onion twice and make someone do the arithmetic in the shop, it becomes one row with
+ * the remainder in the note: "200 g  (+ 2 piece)".
+ */
+export function mergeItems(items: RawItem[]): MergedItem[] {
+  // name -> base unit -> running total (null means "to taste", no quantity)
+  const byName = new Map<string, { label: string; category: string; units: Map<string, number | null> }>();
 
   for (const item of items) {
     const norm = normalizeName(item.name);
     if (!norm) continue;
 
+    let entry = byName.get(norm);
+    if (!entry) {
+      entry = { label: item.name.trim(), category: item.category, units: new Map() };
+      byName.set(norm, entry);
+    }
+
     if (item.quantity == null) {
-      // "To taste" style entries: keep one line, no quantity.
-      const key = `${norm}|~`;
-      if (!merged.has(key)) merged.set(key, { name: item.name.trim(), qty: null, base: item.unit, category: item.category, key });
+      if (!entry.units.has("~")) entry.units.set("~", null);
       continue;
     }
 
     const { qty, base } = toBase(item.quantity, item.unit);
-    const key = `${norm}|${base}`;
-    const existing = merged.get(key);
-    if (existing && existing.qty != null) {
-      existing.qty += qty;
-    } else {
-      merged.set(key, { name: item.name.trim(), qty, base, category: item.category, key });
-    }
+    const running = entry.units.get(base);
+    entry.units.set(base, (typeof running === "number" ? running : 0) + qty);
   }
 
-  return [...merged.values()].map((m) => {
-    if (m.qty == null) return { name: m.name, quantity: null, unit: m.base, category: m.category, key: m.key };
-    const { quantity, unit } = fromBase(m.qty, m.base);
-    return { name: m.name, quantity, unit, category: m.category, key: m.key };
+  return [...byName.entries()].map(([norm, entry]) => {
+    const parts = [...entry.units.entries()]
+      .filter(([base]) => base !== "~")
+      .map(([base, total]) => fromBase(total ?? 0, base));
+
+    if (parts.length === 0) {
+      return { name: entry.label, quantity: null, unit: "", category: entry.category, key: norm, note: null };
+    }
+
+    const [main, ...extras] = parts;
+    return {
+      name: entry.label,
+      quantity: main.quantity,
+      unit: main.unit,
+      category: entry.category,
+      key: norm,
+      note: extras.length ? `+ ${extras.map((e) => `${e.quantity} ${e.unit}`).join(", ")}` : null,
+    };
   });
 }
 

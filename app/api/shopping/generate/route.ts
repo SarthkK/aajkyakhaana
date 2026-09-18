@@ -94,6 +94,7 @@ export const POST = handler(async (req: Request) => {
       quantity: m.quantity != null ? String(m.quantity) : null,
       unit: m.unit,
       category: m.category,
+      note: m.note,
       source: "plan" as const,
       fromDate: from,
       addedBy: userId,

@@ -229,6 +229,7 @@ function Row({
         <span className={cx("block truncate", item.checked && "line-through text-muted")}>{item.name}</span>
         <span className="block text-xs text-muted truncate">
           {qty}
+          {item.note ? ` ${item.note}` : ""}
           {qty && (item.source === "plan" || item.addedByName) ? " · " : ""}
           {item.source === "plan" ? "from the plan" : item.addedByName ? `${item.addedByName.split(" ")[0]} added` : ""}
         </span>

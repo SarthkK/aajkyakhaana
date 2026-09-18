@@ -152,6 +152,10 @@ export function InstallAndNotify() {
 
   return (
     <>
+      {/* The banner is fixed, so the page needs matching room or it covers the last
+          rows. This spacer sits in normal flow and only exists while the banner does. */}
+      {showBanner && !platform.standalone && <div aria-hidden className="h-24" />}
+
       {showBanner && !platform.standalone && (
         <div
           className="fixed inset-x-0 z-40 px-4 animate-in"

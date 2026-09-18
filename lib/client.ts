@@ -21,6 +21,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const data = text ? JSON.parse(text) : null;
 
   if (!res.ok) {
+    // A 401 means the session is gone — expired, signed out elsewhere, or the account
+    // removed. Send them to sign in rather than letting every screen crash on null.
+    //
+    // Deliberately a full page load rather than a client-side push: it throws away all
+    // cached SWR data belonging to the old session and re-runs the server layout, which
+    // is what decides where a signed-out person actually belongs. A soft navigation
+    // would keep stale state around, and this helper has no router to call anyway.
+    if (res.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+      window.location.href = "/login";
+    }
     throw new HttpError(data?.error ?? `Request failed (${res.status})`, res.status);
   }
   return data as T;

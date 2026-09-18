@@ -83,7 +83,7 @@ export default function MePage() {
     );
   }
 
-  if (error || !data) {
+  if (error || !data?.user) {
     return (
       <>
         <AppHeader title="You & your flat" />

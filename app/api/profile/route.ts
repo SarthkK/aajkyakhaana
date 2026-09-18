@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { profiles, users } from "@/lib/db/schema";
-import { requireUserId, handler, json } from "@/lib/api";
+import { requireUserId, handler, json, ApiError } from "@/lib/api";
 import { computeTargets, type Sex } from "@/lib/nutrition";
 
 const schema = z.object({
@@ -29,6 +29,9 @@ async function load(userId: string) {
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
+
+  // The cookie is valid but the account behind it is gone. Treat it as signed out.
+  if (!user) throw new ApiError("Please sign in", 401);
 
   const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
 

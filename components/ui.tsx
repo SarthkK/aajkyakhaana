@@ -2,10 +2,11 @@
 
 import { useEffect, type ReactNode, type ButtonHTMLAttributes, type InputHTMLAttributes, type TextareaHTMLAttributes } from "react";
 import { Loader2, X } from "lucide-react";
+import { cx } from "@/lib/cx";
 
-export function cx(...parts: (string | false | null | undefined)[]) {
-  return parts.filter(Boolean).join(" ");
-}
+// Re-exported so client components can keep importing it from here, but defined in
+// lib/cx.ts so server components (the loading boundaries) can use it too.
+export { cx };
 
 /* --------------------------------- button --------------------------------- */
 

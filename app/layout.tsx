@@ -36,13 +36,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} h-full antialiased`}
-      // The splash script sets data-splash on this element before hydration, so the
-      // server and client markup differ here by design.
-      suppressHydrationWarning
-    >
+    <html lang="en" className={`${geistSans.variable} h-full antialiased`}>
       <body className="min-h-full">
         {children}
         <ServiceWorker />

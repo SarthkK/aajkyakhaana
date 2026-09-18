@@ -1,30 +1,23 @@
 /**
- * "Aaj kya khaana hai?" over the app for about a second.
+ * "Aaj kya khaana hai?" over the app for about a second, once per browser session.
  *
- * This is a server component on purpose. Rendered from React state it appeared *after*
- * the first paint, so you saw a flash of skeletons and then the splash — backwards.
- * Being in the initial HTML means it covers the screen from the very first frame,
- * while the real screen loads underneath it. Nothing is being waited on.
+ * A launch screen, in the native sense: it plays when the app cold-starts and never on
+ * navigation, because the layout it lives in persists across route changes.
  *
- * Showing it once per browser session needs no React either: the inline script below
- * runs before the browser paints and marks the document, and CSS does the rest.
+ * Earlier attempts tied it to a session flag, which went wrong twice — from React
+ * state it rendered *after* first paint, so you saw skeletons and then the splash; from
+ * an inline script it beat the paint but put a raw <script> in the React tree, which
+ * React never executes on the client and warns about. Reading a cookie fixed both but
+ * forced the whole signed-in app to render dynamically, which cost ~600ms on every tab
+ * switch. Being a plain part of the static shell has none of those problems.
  */
 export function Splash() {
   return (
-    <>
-      <script
-        // Runs synchronously before first paint, so a returning visitor never sees
-        // a frame of it. Deliberately tiny and dependency-free.
-        dangerouslySetInnerHTML={{
-          __html: `try{if(sessionStorage.getItem('kk_splash')){document.documentElement.dataset.splash='seen'}else{sessionStorage.setItem('kk_splash','1')}}catch(e){document.documentElement.dataset.splash='seen'}`,
-        }}
-      />
-      <div aria-hidden className="splash-layer fixed inset-0 z-[60] grid place-items-center bg-bg pointer-events-none">
-        <div className="splash-text text-center px-8">
-          <div className="text-5xl mb-4">🍲</div>
-          <p className="text-2xl font-bold tracking-tight text-ink">Aaj kya khaana hai?</p>
-        </div>
+    <div aria-hidden className="splash-layer fixed inset-0 z-[60] grid place-items-center bg-bg pointer-events-none">
+      <div className="splash-text text-center px-8">
+        <div className="text-5xl mb-4">🍲</div>
+        <p className="text-2xl font-bold tracking-tight text-ink">Aaj kya khaana hai?</p>
       </div>
-    </>
+    </div>
   );
 }

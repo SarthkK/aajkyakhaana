@@ -43,18 +43,36 @@ Every skeleton mirrors its component's real geometry — same paddings, row heig
 counts. That precision is the entire point: it is what stops the screen moving when
 data lands. A spinner that gets replaced by content is a layout shift.
 
-## The splash is a server component
+## The splash is part of the static shell
 
-`Splash.tsx` renders in the initial HTML with a tiny inline script that marks the
-document before first paint. It was a client component once and mounted *after* first
-paint, so you saw skeletons and then the splash — backwards.
+`Splash.tsx` is a plain server component in the signed-in layout, so it is in the
+initial HTML and covers the screen from the first frame while the real page loads
+underneath. It plays on cold start and never on navigation, because the layout it
+lives in persists across route changes — launch-screen semantics, like a native app.
 
-Consequences to preserve:
+Three earlier versions got this wrong, each instructively:
 
-- It must stay a server component. Converting it to `"use client"` reintroduces the bug.
-- The inline script sets `data-splash` on `<html>`, which React sees as a hydration
-  mismatch. `app/layout.tsx` carries `suppressHydrationWarning` on that element for
-  exactly this reason — the same fix theme switchers use.
+- **React state** — rendered *after* first paint, so you saw skeletons and then the
+  splash, backwards.
+- **An inline `<script>`** — beat the paint, but a raw script in the React tree is
+  never executed on client navigation and React 19 errors about it. `next/script` with
+  `beforeInteractive` does not help; it still renders a script element.
+- **A cookie read in the layout** — correct behaviour, but it made the whole signed-in
+  app render dynamically and cost ~600ms on every tab switch.
+
+Do not reintroduce "show it only once per session". It is not worth making the shell
+dynamic for.
+
+## Server components cannot import from `components/ui.tsx`
+
+That module is `"use client"`, so anything it exports is a client function. The
+`loading.tsx` boundaries are server components rendering skeletons, and importing `cx`
+from there made every one of them crash at runtime — *while still building cleanly* —
+with "Attempted to call cx() from the server".
+
+`cx` therefore lives in `lib/cx.ts` and is re-exported from `ui.tsx` for convenience.
+Any other shared helper a server component needs belongs in `lib/`, not in a
+`"use client"` module.
 
 ## Fixed elements need matching space
 

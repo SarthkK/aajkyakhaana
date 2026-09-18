@@ -1,4 +1,4 @@
-import { cx } from "@/components/ui";
+import { cx } from "@/lib/cx";
 
 /**
  * Every skeleton below mirrors the real component's geometry — same paddings, same

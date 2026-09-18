@@ -131,6 +131,75 @@ export async function getActiveHousehold(userId: string): Promise<ActiveHousehol
   return rows.find((r) => r.id === pinned) ?? rows[0];
 }
 
+/**
+ * The user and their active household in a single round trip.
+ *
+ * The signed-in layout needs both on every full page load, and this runs against a
+ * database in another region — so one query rather than two is worth the small amount
+ * of duplication. Returns null when the cookie is valid but the account is gone.
+ */
+export async function getSession(): Promise<{ user: SessionUser; household: ActiveHousehold | null } | null> {
+  const userId = await getUserId();
+  if (!userId) return null;
+
+  const jar = await cookies();
+  const pinned = jar.get(ACTIVE_HOUSEHOLD_COOKIE)?.value;
+
+  const rows = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      name: users.name,
+      emoji: users.emoji,
+      householdId: households.id,
+      householdName: households.name,
+      code: households.code,
+      timezone: households.timezone,
+      cookName: households.cookName,
+      role: householdMembers.role,
+      breakfastLockAt: households.breakfastLockAt,
+      lunchLockAt: households.lunchLockAt,
+      dinnerLockAt: households.dinnerLockAt,
+      cookOffDays: households.cookOffDays,
+      joinedAt: householdMembers.joinedAt,
+    })
+    .from(users)
+    .leftJoin(householdMembers, eq(householdMembers.userId, users.id))
+    .leftJoin(households, eq(households.id, householdMembers.householdId))
+    .where(eq(users.id, userId))
+    .orderBy(asc(householdMembers.joinedAt));
+
+  if (rows.length === 0) return null;
+
+  const user: SessionUser = {
+    id: rows[0].id,
+    email: rows[0].email,
+    name: rows[0].name,
+    emoji: rows[0].emoji,
+  };
+
+  const memberships = rows.filter((r) => r.householdId !== null);
+  const chosen = memberships.find((r) => r.householdId === pinned) ?? memberships[0];
+
+  return {
+    user,
+    household: chosen
+      ? {
+          id: chosen.householdId!,
+          name: chosen.householdName!,
+          code: chosen.code!,
+          timezone: chosen.timezone!,
+          cookName: chosen.cookName,
+          role: chosen.role!,
+          breakfastLockAt: chosen.breakfastLockAt!,
+          lunchLockAt: chosen.lunchLockAt!,
+          dinnerLockAt: chosen.dinnerLockAt!,
+          cookOffDays: chosen.cookOffDays ?? [],
+        }
+      : null,
+  };
+}
+
 /** Throws if the user is not a member — use to guard every household-scoped route. */
 export async function assertMember(userId: string, householdId: string) {
   const [row] = await db

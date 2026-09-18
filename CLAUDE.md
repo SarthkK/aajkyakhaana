@@ -60,6 +60,15 @@ access, not on import. Next evaluates every route module during a build, so an e
 connection made `next build` fail on any machine without `DATABASE_URL` — including a
 fresh clone. See `lib/db/CLAUDE.md`.
 
+**The signed-in shell is static, and must stay that way.** `app/(app)/layout.tsx`
+reads no cookies and touches no database. That is not tidiness — any `cookies()` call
+there makes every page beneath it dynamic, which turned each tab switch into a ~600ms
+server round trip that prefetching cannot avoid, because dynamic routes are not
+cached. Auth is gated in `middleware.ts` (signature only, at the edge) and the session
+arrives from `/api/auth/me`, which the client caches. Measured: 646ms → 166ms to fully
+visible, with one 62ms request. If you find yourself adding `await cookies()` to that
+layout, you are undoing this.
+
 **Dates are `YYYY-MM-DD` strings in the flat's timezone, never timestamps.** "Today"
 means today where the flat is. `lib/dates.ts` owns this; don't reach for `Date` maths.
 
@@ -105,6 +114,7 @@ someone who is *not* looking at the app.
 ## Layout and structure
 
 ```
+middleware.ts     the auth gate, so pages beneath it can stay static
 app/(app)/        the signed-in, tab-bar part: today, plan, chat, dishes, shopping, me
 app/api/          REST endpoints; handlers stay thin
 lib/ai/prompts/   every word sent to a model — nothing else holds prompt text

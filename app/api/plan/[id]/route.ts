@@ -3,7 +3,10 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { planEntries } from "@/lib/db/schema";
 import { requireContext, handler, json, ApiError } from "@/lib/api";
-import { isValidDate } from "@/lib/dates";
+import { isValidDate, friendlyDate, todayIn, SLOT_LABELS, type Slot } from "@/lib/dates";
+import { recordEvent } from "@/lib/services/chat";
+import { dishes } from "@/lib/db/schema";
+import { eq as eqOp } from "drizzle-orm";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -38,9 +41,26 @@ export const PATCH = handler(async (req: Request, ctx: Ctx) => {
 });
 
 export const DELETE = handler(async (_req: Request, ctx: Ctx) => {
-  const { household } = await requireContext();
+  const { userId, household } = await requireContext();
   const { id } = await ctx.params;
-  await loadEntry(id, household.id);
+  const entry = await loadEntry(id, household.id);
+
+  const [dish] = await db
+    .select({ name: dishes.name })
+    .from(dishes)
+    .where(eqOp(dishes.id, entry.dishId))
+    .limit(1);
+
   await db.delete(planEntries).where(eq(planEntries.id, id));
+
+  const when = friendlyDate(entry.date, todayIn(household.timezone)).toLowerCase();
+  recordEvent({
+    householdId: household.id,
+    userId,
+    kind: "meal_removed",
+    body: `took ${dish?.name ?? "a dish"} off ${when}'s ${SLOT_LABELS[entry.slot as Slot].toLowerCase()}`,
+    meta: { dishName: dish?.name, slot: entry.slot, date: entry.date },
+  });
+
   return json({ ok: true });
 });

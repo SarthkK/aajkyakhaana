@@ -37,7 +37,8 @@ export default function DishesPage() {
     <>
       <AppHeader
         title="Dishes"
-        subtitle={`${dishes.length} saved for your flat`}
+        back="/today"
+        subtitle={`${dishes.length} saved for your flat — everyone in the flat sees these`}
         action={
           <button onClick={() => setAdding(true)} className="p-2 text-accent" aria-label="Add dish">
             <Plus className="size-6" />

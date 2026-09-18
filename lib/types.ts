@@ -130,3 +130,15 @@ export type SuggestionView = {
   is_veg: boolean;
   effort: string;
 };
+
+export type FeedMessage = {
+  id: number;
+  kind: "text" | "meal_added" | "meal_removed" | "meal_settled";
+  body: string;
+  planEntryId: string | null;
+  meta: { dishName?: string; slot?: string; date?: string } | null;
+  createdAt: string;
+  userId: string | null;
+  authorName: string | null;
+  authorEmoji: string | null;
+};

@@ -8,7 +8,7 @@ import { prefetch } from "@/lib/client";
  * switching tabs shows real content instead of a skeleton. Deliberately idle-time
  * and one-shot: this is a phone app, possibly on a patchy connection.
  */
-const WARM = ["/api/plan", "/api/dishes", "/api/shopping", "/api/profile"];
+const WARM = ["/api/plan", "/api/chat", "/api/shopping", "/api/profile"];
 
 export function Prefetcher() {
   useEffect(() => {

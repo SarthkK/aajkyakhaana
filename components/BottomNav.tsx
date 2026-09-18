@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ShoppingCart, Sun, BookOpen, User } from "lucide-react";
+import { CalendarDays, ShoppingCart, Sun, MessageCircle, User } from "lucide-react";
 import { cx } from "@/components/ui";
 import { prefetch } from "@/lib/client";
 import { tap } from "@/lib/haptics";
@@ -10,7 +10,7 @@ import { tap } from "@/lib/haptics";
 const TABS = [
   { href: "/today", label: "Today", icon: Sun, data: ["/api/plan"] },
   { href: "/plan", label: "Plan", icon: CalendarDays, data: ["/api/plan"] },
-  { href: "/dishes", label: "Dishes", icon: BookOpen, data: ["/api/dishes"] },
+  { href: "/chat", label: "Chat", icon: MessageCircle, data: ["/api/chat"] },
   { href: "/shopping", label: "List", icon: ShoppingCart, data: ["/api/shopping"] },
   { href: "/me", label: "Me", icon: User, data: ["/api/profile", "/api/households/members"] },
 ];

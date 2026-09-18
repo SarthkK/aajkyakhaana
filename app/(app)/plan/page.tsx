@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ChevronRight, ShoppingCart, CopyPlus } from "lucide-react";
+import { ChevronRight, BookOpen, CopyPlus } from "lucide-react";
 import { api, useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
 import { Button, Card, ErrorNote, cx } from "@/components/ui";
@@ -50,8 +50,8 @@ export default function PlanPage() {
         title="The plan"
         subtitle="Next two weeks"
         action={
-          <Link href="/shopping" className="p-2 text-muted" aria-label="Shopping list">
-            <ShoppingCart className="size-5" />
+          <Link href="/dishes" className="p-2 text-muted" aria-label="Dish library">
+            <BookOpen className="size-5" />
           </Link>
         }
       />

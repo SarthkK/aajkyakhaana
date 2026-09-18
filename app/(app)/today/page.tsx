@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, ChevronRight } from "lucide-react";
+import { CalendarDays, ChevronRight, BookOpen } from "lucide-react";
 import { useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
 import { DayBoard } from "@/components/DayBoard";
@@ -46,9 +46,14 @@ export default function TodayPage() {
         title={household.name}
         subtitle={household.cookName ? `Cook: ${household.cookName}` : "Kya khaana hai aaj?"}
         action={
-          <Link href="/plan" className="p-2 text-muted" aria-label="Full plan">
-            <CalendarDays className="size-5" />
-          </Link>
+          <div className="flex items-center -mr-2">
+            <Link href="/dishes" className="p-2 text-muted" aria-label="Dish library">
+              <BookOpen className="size-5" />
+            </Link>
+            <Link href="/plan" className="p-2 text-muted" aria-label="Full plan">
+              <CalendarDays className="size-5" />
+            </Link>
+          </div>
         }
       />
 

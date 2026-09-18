@@ -5,6 +5,7 @@ import { planEntries, dishes, votes, comments, users } from "@/lib/db/schema";
 import { requireContext, handler, json, ApiError } from "@/lib/api";
 import { isValidDate, todayIn, addDays, friendlyDate, SLOT_LABELS, type Slot } from "@/lib/dates";
 import { notifyInBackground } from "@/lib/services/notifications";
+import { recordEvent } from "@/lib/services/chat";
 import { logger } from "@/lib/logger";
 
 const log = logger("plan");
@@ -167,6 +168,15 @@ export const POST = handler(async (req: Request) => {
 
   const when = friendlyDate(input.date, todayIn(household.timezone)).toLowerCase();
   const slotLabel = SLOT_LABELS[input.slot as Slot].toLowerCase();
+
+  recordEvent({
+    householdId: household.id,
+    userId,
+    kind: "meal_added",
+    body: `added ${dish?.name ?? "a dish"} to ${when}'s ${slotLabel}`,
+    planEntryId: entry.id,
+    meta: { dishName: dish?.name, slot: input.slot, date: input.date },
+  });
 
   notifyInBackground({
     householdId: household.id,

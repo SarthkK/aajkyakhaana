@@ -9,6 +9,7 @@ import {
   date,
   jsonb,
   smallint,
+  bigserial,
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
@@ -207,6 +208,46 @@ export const shoppingItems = pgTable("shopping_items", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("shopping_items_household_idx").on(t.householdId, t.checked)]);
 
+/* ----------------------------------- chat ---------------------------------- */
+
+/** What a row in the feed is. Text is a person talking; the rest are things that happened. */
+export type MessageKind = "text" | "meal_added" | "meal_removed" | "meal_settled";
+
+export type MessageMeta = {
+  dishName?: string;
+  slot?: string;
+  date?: string;
+};
+
+/**
+ * The flat's feed: chat and plan activity in one timeline, so an argument about dinner
+ * sits next to the dish it is about.
+ *
+ * The id is a bigserial rather than a uuid because it is also the polling cursor —
+ * "anything newer than 412?" is an index scan, which is what makes a 3-second poll
+ * cheap enough to keep a free-tier database happy.
+ */
+export const messages = pgTable("messages", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  /** Null for events the app generated rather than a person writing. */
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  kind: text("kind").$type<MessageKind>().notNull().default("text"),
+  body: text("body").notNull(),
+  planEntryId: uuid("plan_entry_id").references(() => planEntries.id, { onDelete: "set null" }),
+  /** Denormalised, so an event still reads correctly after the dish or entry is deleted. */
+  meta: jsonb("meta").$type<MessageMeta>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("messages_household_idx").on(t.householdId, t.id)]);
+
+/** Where each person had read up to, so the tab can show an unread count. */
+export const messageReads = pgTable("message_reads", {
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  lastReadId: integer("last_read_id").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("message_reads_unique").on(t.householdId, t.userId)]);
+
 /* ------------------------------ notifications ------------------------------ */
 
 /**
@@ -270,6 +311,12 @@ export const votesRelations = relations(votes, ({ one }) => ({
   user: one(users, { fields: [votes.userId], references: [users.id] }),
 }));
 
+export const messagesRelations = relations(messages, ({ one }) => ({
+  household: one(households, { fields: [messages.householdId], references: [households.id] }),
+  user: one(users, { fields: [messages.userId], references: [users.id] }),
+  planEntry: one(planEntries, { fields: [messages.planEntryId], references: [planEntries.id] }),
+}));
+
 export const commentsRelations = relations(comments, ({ one }) => ({
   entry: one(planEntries, { fields: [comments.planEntryId], references: [planEntries.id] }),
   user: one(users, { fields: [comments.userId], references: [users.id] }),
@@ -283,3 +330,4 @@ export type DishIngredient = typeof dishIngredients.$inferSelect;
 export type PlanEntry = typeof planEntries.$inferSelect;
 export type ShoppingItem = typeof shoppingItems.$inferSelect;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+export type Message = typeof messages.$inferSelect;

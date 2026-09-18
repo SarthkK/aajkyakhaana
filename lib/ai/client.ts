@@ -229,9 +229,10 @@ async function doCall<T>(opts: AiRequest, model: string, timeoutMs: number): Pro
           type: "json_schema",
           json_schema: {
             name: opts.name,
-            // Strict mode restricts which schema features are allowed and is unevenly
-            // supported; we validate and normalise the result ourselves anyway.
-            strict: false,
+            // Strict mode constrains the decoder so invalid JSON cannot be produced.
+            // Groq supports it on the models we use; OpenRouter's free models vary,
+            // and there a rejected schema is worse than a best-effort answer.
+            strict: provider() === "groq",
             schema: opts.schema,
           },
         },

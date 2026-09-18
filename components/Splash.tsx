@@ -1,57 +1,30 @@
-"use client";
-
-import { useEffect, useState } from "react";
-
 /**
  * "Aaj kya khaana hai?" over the app for about a second.
  *
- * Two deliberate constraints, because a splash screen that delays the answer works
- * against the whole point of the app:
- *   - the real screen renders underneath the whole time, so nothing is being waited on;
- *   - it shows once per browser session, not on every navigation back to the tab.
+ * This is a server component on purpose. Rendered from React state it appeared *after*
+ * the first paint, so you saw a flash of skeletons and then the splash — backwards.
+ * Being in the initial HTML means it covers the screen from the very first frame,
+ * while the real screen loads underneath it. Nothing is being waited on.
+ *
+ * Showing it once per browser session needs no React either: the inline script below
+ * runs before the browser paints and marks the document, and CSS does the rest.
  */
-const SEEN_KEY = "kk_splash_seen";
-
 export function Splash() {
-  const [show, setShow] = useState(false);
-
-  useEffect(() => {
-    // Deferred by a frame so the state change happens in a callback rather than
-    // synchronously inside the effect. One frame is not perceptible.
-    let timer: ReturnType<typeof setTimeout>;
-
-    const frame = requestAnimationFrame(() => {
-      let seen = false;
-      try {
-        seen = sessionStorage.getItem(SEEN_KEY) === "1";
-        sessionStorage.setItem(SEEN_KEY, "1");
-      } catch {
-        // Private mode or blocked storage: skip it rather than showing it every time.
-        seen = true;
-      }
-      if (seen) return;
-
-      setShow(true);
-      timer = setTimeout(() => setShow(false), 1300);
-    });
-
-    return () => {
-      cancelAnimationFrame(frame);
-      clearTimeout(timer);
-    };
-  }, []);
-
-  if (!show) return null;
-
   return (
-    <div
-      aria-hidden
-      className="splash-layer fixed inset-0 z-[60] grid place-items-center bg-bg pointer-events-none"
-    >
-      <div className="splash-text text-center px-8">
-        <div className="text-5xl mb-4">🍲</div>
-        <p className="text-2xl font-bold tracking-tight text-ink">Aaj kya khaana hai?</p>
+    <>
+      <script
+        // Runs synchronously before first paint, so a returning visitor never sees
+        // a frame of it. Deliberately tiny and dependency-free.
+        dangerouslySetInnerHTML={{
+          __html: `try{if(sessionStorage.getItem('kk_splash')){document.documentElement.dataset.splash='seen'}else{sessionStorage.setItem('kk_splash','1')}}catch(e){document.documentElement.dataset.splash='seen'}`,
+        }}
+      />
+      <div aria-hidden className="splash-layer fixed inset-0 z-[60] grid place-items-center bg-bg pointer-events-none">
+        <div className="splash-text text-center px-8">
+          <div className="text-5xl mb-4">🍲</div>
+          <p className="text-2xl font-bold tracking-tight text-ink">Aaj kya khaana hai?</p>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

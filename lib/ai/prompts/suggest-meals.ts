@@ -1,41 +1,29 @@
 import { KITCHEN_CONTEXT } from "./kitchen-context";
+import { strictObject, arrayOf, str, bool, nullable, enumOf } from "./strict";
 
 /* --------------------------------- schema --------------------------------- */
 
-export const SCHEMA = {
-  type: "object",
-  properties: {
-    suggestions: {
-      // No minItems/maxItems: Groq's JSON decoder rejects a schema containing them.
-      // The count is asked for in the prompt instead.
-      type: "array",
-      description: "Exactly three genuinely different options, best first.",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "Dish name as Indians say it." },
-          existing_dish_id: {
-            type: ["string", "null"],
-            description: "If this is a dish already in their library, its exact id. Otherwise null.",
-          },
-          reason: {
-            type: "string",
-            description:
-              "One friendly sentence, max 140 chars, saying why this fits — variety, effort, weather, what they have been eating.",
-          },
-          nutrition_note: {
-            type: "string",
-            description: "Short note on which nutrient gap this helps close, e.g. 'Rajma pushes protein and iron up'.",
-          },
-          is_veg: { type: "boolean" },
-          effort: { type: "string", enum: ["easy", "medium", "involved"] },
-        },
-        required: ["name", "reason", "is_veg", "effort"],
-      },
-    },
-  },
-  required: ["suggestions"],
-} as const;
+export const SCHEMA = strictObject({
+  suggestions: arrayOf(
+    strictObject({
+      name: str("Dish name as Indians say it."),
+      existing_dish_id: nullable(
+        "string",
+        "If this is a dish already in their library, its exact id from the list. Otherwise null.",
+      ),
+      reason: str(
+        "One friendly sentence, max 140 chars, saying why this fits — variety, effort, weather, what they have been eating.",
+      ),
+      nutrition_note: nullable(
+        "string",
+        "Short note on which nutrient gap this helps close, e.g. 'Rajma pushes protein and iron up'. Null if there is nothing useful to say.",
+      ),
+      is_veg: bool("False if it contains meat, fish or eggs."),
+      effort: enumOf(["easy", "medium", "involved"], "How much work it is for the cook."),
+    }),
+    "Exactly three genuinely different options, best first.",
+  ),
+});
 
 /* --------------------------------- prompts -------------------------------- */
 
@@ -80,16 +68,17 @@ export function user(ctx: SuggestContext) {
   if (ctx.library.length) {
     lines.push(
       ``,
-      `Dishes already saved in their library (prefer these when they fit — pass the id as existing_dish_id):`,
+      `Dishes already saved in their library. If you suggest one of these, copy its id`,
+      `exactly into existing_dish_id. For anything new, existing_dish_id must be null.`,
       ...ctx.library.map(
         (d) =>
-          `- [${d.id}] ${d.name} (${d.course}, ${d.isVeg ? "veg" : "non-veg"}` +
+          `- id ${d.id} — ${d.name} (${d.course}, ${d.isVeg ? "veg" : "non-veg"}` +
           (d.protein ? `, ${Math.round(d.protein)}g protein/serving` : "") +
           `)`,
       ),
     );
   } else {
-    lines.push(``, `Their library is empty, so suggest fresh dishes.`);
+    lines.push(``, `Their library is empty, so suggest fresh dishes and use null for every existing_dish_id.`);
   }
 
   if (ctx.recent.length) {
@@ -126,9 +115,9 @@ export function user(ctx: SuggestContext) {
 
 export type Suggestion = {
   name: string;
-  existing_dish_id?: string | null;
+  existing_dish_id: string | null;
   reason: string;
-  nutrition_note?: string;
+  nutrition_note: string | null;
   is_veg: boolean;
   effort: "easy" | "medium" | "involved";
 };

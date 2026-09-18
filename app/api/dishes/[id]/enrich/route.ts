@@ -7,6 +7,16 @@ import { fetchDishDetails, normalizeUnit, normalizeCategory, applyPantryDefaults
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/** Strict mode makes the model send every nutrient, using null where it cannot say.
+ *  Those nulls must be dropped, not stored as zeros, or the day's totals go wrong. */
+function cleanNutrition(raw: Record<string, unknown> | null | undefined) {
+  if (!raw) return null;
+  const kept = Object.entries(raw).filter(
+    ([, value]) => typeof value === "number" && Number.isFinite(value),
+  );
+  return kept.length ? (Object.fromEntries(kept) as typeof raw) : null;
+}
+
 // The model call can take a while; give it room on serverless hosts.
 export const maxDuration = 60;
 
@@ -67,7 +77,7 @@ export const POST = handler(async (_req: Request, ctx: Ctx) => {
           isVeg: details.is_veg ?? dish.isVeg,
           prepMinutes: Number.isFinite(details.prep_minutes) ? details.prep_minutes : null,
           tags: (details.tags ?? []).slice(0, 6),
-          nutrition: details.nutrition_per_serving ?? null,
+          nutrition: cleanNutrition(details.nutrition_per_serving),
           enrichStatus: "ready",
           enrichError: null,
         })

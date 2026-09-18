@@ -201,6 +201,11 @@ select {
   animation: kk-splash-out 1.15s ease-out forwards;
 }
 
+/* Already seen this session: never render a single frame of it. */
+html[data-splash="seen"] .splash-layer {
+  display: none;
+}
+
 @utility splash-text {
   animation: kk-splash-text 0.45s cubic-bezier(0.32, 0.72, 0, 1) both;
 }

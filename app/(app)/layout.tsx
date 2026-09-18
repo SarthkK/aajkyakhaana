@@ -19,10 +19,10 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   return (
     <SessionProvider user={user} household={household}>
       <ToastProvider>
+        <Splash />
         <div className="max-w-md mx-auto w-full">{children}</div>
         <BottomNav />
         <Prefetcher />
-        <Splash />
       </ToastProvider>
     </SessionProvider>
   );

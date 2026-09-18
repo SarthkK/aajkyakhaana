@@ -80,6 +80,19 @@ export function aiModel() {
   return process.env[c.modelEnv] || c.defaultModel;
 }
 
+/**
+ * Models that accept reasoning_effort "none", which is what makes a mechanical
+ * extraction take 2 seconds instead of 90. Everything else on Groq accepts only
+ * low|medium|high and rejects "none" with a 400 — which used to kill the whole
+ * fallback chain the moment the primary model was busy.
+ */
+const SUPPORTS_NO_REASONING = [/^qwen\/qwen3\.\d/];
+
+function reasoningFor(model: string): Record<string, unknown> {
+  if (provider() !== "groq") return { reasoning: { enabled: false } };
+  return { reasoning_effort: SUPPORTS_NO_REASONING.some((re) => re.test(model)) ? "none" : "low" };
+}
+
 /** Primary model plus the fallbacks we walk when it is busy or slow. */
 function modelChain(): string[] {
   const c = config();
@@ -237,9 +250,10 @@ async function doCall<T>(opts: AiRequest, model: string, timeoutMs: number): Pro
           },
         },
         // Hybrid-thinking models take ~90s with reasoning on and ~2s with it off, for
-        // no gain on a task this mechanical. The two providers spell it differently,
-        // and each rejects the other's spelling outright.
-        ...(provider() === "groq" ? { reasoning_effort: "none" } : { reasoning: { enabled: false } }),
+        // no gain on a task this mechanical. Providers spell it differently and each
+        // rejects the other's spelling, and even within Groq the accepted values vary
+        // by model — so this is decided per model, not once.
+        ...reasoningFor(model),
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -349,7 +363,9 @@ function providerError(
     if (/model/i.test(detail)) {
       return new AiError(`${api.label} does not know that model. Check ${modelEnv}. (${detail})`);
     }
-    return new AiError(`${api.label} rejected the request (${status}): ${detail}`);
+    // Retryable on purpose: a 400 here is often one model refusing a parameter its
+    // siblings accept, and the next model in the chain may well handle it.
+    return new AiError(`${api.label} rejected the request (${status}): ${detail}`, status === 400);
   }
   if (status >= 500) return new AiError(`${api.label} is having trouble right now. Try again.`, true);
   return new AiError(`${api.label} error (${status}): ${detail}`);

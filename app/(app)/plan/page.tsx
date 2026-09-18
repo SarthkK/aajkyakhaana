@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
-import { ChevronRight, ShoppingCart } from "lucide-react";
-import { useApi } from "@/lib/client";
+import { ChevronRight, ShoppingCart, CopyPlus } from "lucide-react";
+import { api, useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
-import { Card, ErrorNote, cx } from "@/components/ui";
+import { Button, Card, ErrorNote, cx } from "@/components/ui";
+import { useToast } from "@/components/Toast";
 import { PlanListSkeleton } from "@/components/Skeleton";
 import { VegDot } from "@/components/EntryCard";
 import { SLOTS, SLOT_LABELS, SLOT_EMOJI, friendlyDate, weekdayOf, addDays } from "@/lib/dates";
@@ -13,12 +15,34 @@ import type { PlanResponse } from "@/lib/types";
 const DAYS_AHEAD = 13;
 
 export default function PlanPage() {
-  const { data, error, loading } = useApi<PlanResponse>(
+  const toast = useToast();
+  const [copying, setCopying] = useState(false);
+  const { data, error, loading, reload } = useApi<PlanResponse>(
     `/api/plan?from=${todayGuess()}&to=${addDays(todayGuess(), DAYS_AHEAD)}`,
   );
 
   const today = data?.today ?? todayGuess();
   const dates = Array.from({ length: DAYS_AHEAD + 1 }, (_, i) => addDays(today, i));
+
+  /** Most flats settle into a rotation; rebuilding it by hand is the tedium we remove. */
+  async function repeatLastWeek() {
+    setCopying(true);
+    try {
+      const res = await api.post<{ copied: number; message?: string }>("/api/plan/repeat", { days: 7 });
+      await reload();
+      toast(
+        res.message ??
+          (res.copied === 0
+            ? "Nothing to copy across"
+            : `Copied ${res.copied} meal${res.copied === 1 ? "" : "s"} from last week`),
+        { tone: res.copied === 0 ? "info" : "good" },
+      );
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not copy last week", { tone: "bad" });
+    } finally {
+      setCopying(false);
+    }
+  }
 
   return (
     <>
@@ -33,6 +57,12 @@ export default function PlanPage() {
       />
 
       <div className="px-4 pt-4 space-y-2.5">
+        {data && (
+          <Button variant="secondary" className="w-full mb-1" onClick={repeatLastWeek} loading={copying}>
+            <CopyPlus className="size-4" /> Repeat last week
+          </Button>
+        )}
+
         {loading && !data && <PlanListSkeleton />}
         {error && !data && <ErrorNote>{error}</ErrorNote>}
 
@@ -40,18 +70,23 @@ export default function PlanPage() {
           dates.map((date) => {
             const dayEntries = data.entries.filter((e) => e.date === date);
             const isToday = date === today;
+            // Today and tomorrow are what people actually open this for.
+            const prominent = date === today || date === addDays(today, 1);
 
             return (
               <Link key={date} href={`/day/${date}`} className="block">
                 <Card
                   className={cx(
-                    "p-4 active:bg-surface-2 transition",
+                    "active:bg-surface-2 transition pressable",
+                    prominent ? "p-4" : "px-3.5 py-3",
                     isToday && "border-accent/40 bg-accent-soft/30",
                   )}
                 >
-                  <div className="flex items-center justify-between mb-2">
+                  <div className={cx("flex items-center justify-between", prominent ? "mb-2" : "mb-1")}>
                     <div className="flex items-baseline gap-2 min-w-0">
-                      <h2 className="font-semibold">{friendlyDate(date, today)}</h2>
+                      <h2 className={cx("font-semibold", prominent ? "text-lg" : "text-sm")}>
+                        {friendlyDate(date, today)}
+                      </h2>
                       <span className="text-xs text-muted truncate">{weekdayOf(date)}</span>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">

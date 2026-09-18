@@ -2,16 +2,20 @@
 
 import { useCallback, useState } from "react";
 import Link from "next/link";
-import { CalendarDays } from "lucide-react";
+import { CalendarDays, ChevronRight } from "lucide-react";
 import { useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
 import { DayBoard } from "@/components/DayBoard";
 import { DaySummaryCard } from "@/components/DaySummaryCard";
-import { ErrorNote } from "@/components/ui";
+import { CookBriefing } from "@/components/CookBriefing";
 import { DayBoardSkeleton, SummaryCardSkeleton } from "@/components/Skeleton";
+import { ErrorNote, Card, cx } from "@/components/ui";
 import { useSession } from "@/components/SessionProvider";
-import { addDays } from "@/lib/dates";
+import { addDays, friendlyDate, weekdayOf, SLOTS, SLOT_EMOJI } from "@/lib/dates";
 import type { PlanResponse, PlanEntryView } from "@/lib/types";
+
+/** How many days past tomorrow to show as a quick glance. */
+const PEEK_DAYS = 4;
 
 export default function TodayPage() {
   const { household } = useSession();
@@ -62,8 +66,9 @@ export default function TodayPage() {
 
         {data && today && tomorrow && (
           <>
-            <div className="mb-4">
+            <div className="mb-4 space-y-3">
               <DaySummaryCard key={`${today}-${version}`} date={today} />
+              <CookBriefing date={today} entries={data.entries.filter((e) => e.date === today)} />
             </div>
 
             <DayBoard
@@ -82,11 +87,53 @@ export default function TodayPage() {
               patchEntry={patchEntry}
             />
 
+            {/* Further out is a glance, not a workspace — most flats decide day-of. */}
+            <section className="mb-4">
+              <h2 className="text-[13px] font-semibold uppercase tracking-wider text-muted px-1 mb-2">
+                Later this week
+              </h2>
+              <div className="space-y-1.5">
+                {Array.from({ length: PEEK_DAYS }, (_, i) => addDays(tomorrow, i + 1)).map((date) => {
+                  const dayEntries = data.entries.filter((e) => e.date === date);
+                  return (
+                    <Link key={date} href={`/day/${date}`} className="block">
+                      <Card className="px-3.5 py-3 flex items-center gap-3 active:bg-surface-2 pressable">
+                        <div className="w-[70px] shrink-0">
+                          <p className="text-sm font-semibold leading-tight">{weekdayOf(date).slice(0, 3)}</p>
+                          <p className="text-[11px] text-muted">{friendlyDate(date, today)}</p>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          {dayEntries.length === 0 ? (
+                            <p className="text-sm text-muted">Nothing planned</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-x-2.5 gap-y-1">
+                              {SLOTS.filter((s) => dayEntries.some((e) => e.slot === s)).map((slot) => (
+                                <span key={slot} className="inline-flex items-center gap-1 text-sm min-w-0">
+                                  <span className="text-[11px]">{SLOT_EMOJI[slot]}</span>
+                                  <span className="truncate">
+                                    {dayEntries.filter((e) => e.slot === slot).map((e) => e.dish.name).join(", ")}
+                                  </span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <ChevronRight className="size-4 text-muted shrink-0" />
+                      </Card>
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+
             <Link
               href="/plan"
-              className="block text-center text-sm text-accent-text font-medium py-3 mb-4"
+              className={cx(
+                "block text-center text-sm text-accent-text font-medium py-3 mb-4 rounded-2xl",
+                "active:bg-accent-soft pressable",
+              )}
             >
-              See the whole week →
+              See the whole fortnight →
             </Link>
           </>
         )}

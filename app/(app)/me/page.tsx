@@ -18,6 +18,8 @@ import {
 } from "@/components/ui";
 import { ProfileSkeleton } from "@/components/Skeleton";
 import { useToast } from "@/components/Toast";
+import { NotificationSetting } from "@/components/NotificationSetting";
+import { FlatSettings } from "@/components/FlatSettings";
 import { useSession } from "@/components/SessionProvider";
 import {
   ACTIVITY_LABELS,
@@ -58,6 +60,9 @@ type ProfileResponse = {
     allergies: string[];
     dislikes: string[];
     calorieOverride: number | null;
+    notifyMeals: boolean;
+    notifyComments: boolean;
+    notifyLocks: boolean;
   } | null;
   targets: Targets | null;
 };
@@ -132,6 +137,11 @@ function MeForm({
     dislikes: (data.profile?.dislikes ?? []).join(", "),
   });
   const [targets, setTargets] = useState(data.targets);
+  const [notifyPrefs, setNotifyPrefs] = useState({
+    notifyMeals: data.profile?.notifyMeals ?? true,
+    notifyComments: data.profile?.notifyComments ?? true,
+    notifyLocks: data.profile?.notifyLocks ?? true,
+  });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -408,6 +418,31 @@ function MeForm({
               </div>
             )}
           </Card>
+        </section>
+
+        <section>
+          <h2 className="text-[13px] font-semibold uppercase tracking-wider text-muted px-1 mb-2">
+            Staying in the loop
+          </h2>
+          <NotificationSetting
+            prefs={notifyPrefs}
+            onPrefChange={(key, value) => {
+              // Saved on the spot: a toggle that needs a separate Save is a toggle
+              // people assume did not work.
+              setNotifyPrefs((prev) => ({ ...prev, [key]: value }));
+              void api.put("/api/profile", { [key]: value }).catch(() => {
+                setNotifyPrefs((prev) => ({ ...prev, [key]: !value }));
+                toast("That did not save", { tone: "bad" });
+              });
+            }}
+          />
+        </section>
+
+        <section>
+          <h2 className="text-[13px] font-semibold uppercase tracking-wider text-muted px-1 mb-2">
+            The kitchen
+          </h2>
+          <FlatSettings household={household} />
         </section>
 
         <section>

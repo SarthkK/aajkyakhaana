@@ -18,6 +18,9 @@ const schema = z.object({
   allergies: z.array(z.string().trim().max(40)).max(20).optional(),
   dislikes: z.array(z.string().trim().max(40)).max(20).optional(),
   calorieOverride: z.coerce.number().int().min(800).max(6000).nullable().optional(),
+  notifyMeals: z.boolean().optional(),
+  notifyComments: z.boolean().optional(),
+  notifyLocks: z.boolean().optional(),
 });
 
 async function load(userId: string) {

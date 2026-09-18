@@ -173,3 +173,41 @@ select {
 @utility animate-toast {
   animation: kk-toast-in 0.2s cubic-bezier(0.32, 0.72, 0, 1);
 }
+
+/* Splash: the app is already rendering underneath, this just sits on top briefly. */
+@keyframes kk-splash-out {
+  0%, 62% {
+    opacity: 1;
+    visibility: visible;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+@keyframes kk-splash-text {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility splash-layer {
+  animation: kk-splash-out 1.15s ease-out forwards;
+}
+
+@utility splash-text {
+  animation: kk-splash-text 0.45s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-layer,
+  .splash-text {
+    animation-duration: 0.4s;
+  }
+}

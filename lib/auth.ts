@@ -95,6 +95,10 @@ export type ActiveHousehold = {
   timezone: string;
   cookName: string | null;
   role: string;
+  breakfastLockAt: string;
+  lunchLockAt: string;
+  dinnerLockAt: string;
+  cookOffDays: number[];
 };
 
 /**
@@ -113,6 +117,10 @@ export async function getActiveHousehold(userId: string): Promise<ActiveHousehol
       timezone: households.timezone,
       cookName: households.cookName,
       role: householdMembers.role,
+      breakfastLockAt: households.breakfastLockAt,
+      lunchLockAt: households.lunchLockAt,
+      dinnerLockAt: households.dinnerLockAt,
+      cookOffDays: households.cookOffDays,
     })
     .from(householdMembers)
     .innerJoin(households, eq(households.id, householdMembers.householdId))

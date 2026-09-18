@@ -11,6 +11,10 @@ export type HouseholdInfo = {
   timezone: string;
   cookName: string | null;
   role: string;
+  breakfastLockAt: string;
+  lunchLockAt: string;
+  dinnerLockAt: string;
+  cookOffDays: number[];
 };
 
 export type Ingredient = {

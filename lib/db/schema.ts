@@ -42,6 +42,12 @@ export const profiles = pgTable("profiles", {
   dislikes: text("dislikes").array().notNull().default([]),
   /** Manual override for daily kcal; null = computed from Mifflin-St Jeor. */
   calorieOverride: integer("calorie_override"),
+  /** Someone proposed or changed a meal. */
+  notifyMeals: boolean("notify_meals").notNull().default(true),
+  /** Someone commented on a meal. */
+  notifyComments: boolean("notify_comments").notNull().default(true),
+  /** A slot resolved and the cook has an answer. */
+  notifyLocks: boolean("notify_locks").notNull().default(true),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -55,6 +61,15 @@ export const households = pgTable("households", {
   /** IANA timezone used to decide what "today" means for this flat. */
   timezone: text("timezone").notNull().default("Asia/Kolkata"),
   cookName: text("cook_name"),
+  /**
+   * Local times, "HH:MM", after which a slot stops taking proposals and resolves to a
+   * winner. Set a little before the cook actually arrives so the answer is ready.
+   */
+  breakfastLockAt: text("breakfast_lock_at").notNull().default("07:00"),
+  lunchLockAt: text("lunch_lock_at").notNull().default("10:30"),
+  dinnerLockAt: text("dinner_lock_at").notNull().default("17:30"),
+  /** Days the cook does not come. 0 = Sunday, matching JavaScript's getDay(). */
+  cookOffDays: integer("cook_off_days").array().notNull().default([]),
   createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("households_code_key").on(t.code)]);
@@ -192,6 +207,28 @@ export const shoppingItems = pgTable("shopping_items", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("shopping_items_household_idx").on(t.householdId, t.checked)]);
 
+/* ------------------------------ notifications ------------------------------ */
+
+/**
+ * One row per browser a person has granted notification permission in. People use
+ * more than one device, and a subscription silently expires, so this is many-per-user
+ * and rows get deleted when the push service reports them gone.
+ */
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  /** The push service URL. Unique per browser install. */
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+}, (t) => [
+  uniqueIndex("push_subscriptions_endpoint_key").on(t.endpoint),
+  index("push_subscriptions_user_idx").on(t.userId),
+]);
+
 /* -------------------------------- relations -------------------------------- */
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -245,3 +282,4 @@ export type Dish = typeof dishes.$inferSelect;
 export type DishIngredient = typeof dishIngredients.$inferSelect;
 export type PlanEntry = typeof planEntries.$inferSelect;
 export type ShoppingItem = typeof shoppingItems.$inferSelect;
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { planEntries, dishes } from "@/lib/db/schema";
 import { requireContext, handler, json, ApiError } from "@/lib/api";
 import { aiEnabled, missingKeyName } from "@/lib/ai/client";
-import { suggestMeals } from "@/lib/ai/suggest";
+import { suggestMealsFor, type Suggestion } from "@/lib/ai/suggest";
 import { summarizeDay } from "@/lib/summary";
 import { isValidDate, todayIn, addDays } from "@/lib/dates";
 
@@ -59,7 +59,7 @@ export const POST = handler(async (req: Request) => {
 
   const summary = await summarizeDay(household.id, date);
 
-  const suggestions = await suggestMeals({
+  const suggestions = await suggestMealsFor({
     slot,
     date,
     library: library.map((d) => ({
@@ -88,7 +88,7 @@ export const POST = handler(async (req: Request) => {
   // Only trust ids that really belong to this flat.
   const libraryIds = new Set(library.map((d) => d.id));
   return json({
-    suggestions: suggestions.map((s) => ({
+    suggestions: suggestions.map((s: Suggestion) => ({
       ...s,
       existing_dish_id: s.existing_dish_id && libraryIds.has(s.existing_dish_id) ? s.existing_dish_id : null,
     })),

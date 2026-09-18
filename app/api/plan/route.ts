@@ -3,7 +3,11 @@ import { eq, and, gte, lte, inArray, asc } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { planEntries, dishes, votes, comments, users } from "@/lib/db/schema";
 import { requireContext, handler, json, ApiError } from "@/lib/api";
-import { isValidDate, todayIn, addDays } from "@/lib/dates";
+import { isValidDate, todayIn, addDays, friendlyDate, SLOT_LABELS, type Slot } from "@/lib/dates";
+import { notifyInBackground } from "@/lib/services/notifications";
+import { logger } from "@/lib/logger";
+
+const log = logger("plan");
 
 const querySchema = z.object({
   from: z.string().refine(isValidDate, "Bad from date").optional(),
@@ -142,6 +146,43 @@ export const POST = handler(async (req: Request) => {
 
   // Whoever proposes it is assumed to want it.
   await db.insert(votes).values({ planEntryId: entry.id, userId, value: 1 }).onConflictDoNothing();
+
+  const [dish] = await db.select({ name: dishes.name }).from(dishes).where(eq(dishes.id, dishId)).limit(1);
+  const [me] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId)).limit(1);
+
+  log.info("meal proposed", { householdId: household.id, date: input.date, slot: input.slot, dishId });
+
+  // How many dishes this slot already has decides the wording: a second proposal is a
+  // call to vote, a first is just news.
+  const sameSlot = await db
+    .select({ id: planEntries.id })
+    .from(planEntries)
+    .where(
+      and(
+        eq(planEntries.householdId, household.id),
+        eq(planEntries.date, input.date),
+        eq(planEntries.slot, input.slot),
+      ),
+    );
+
+  const when = friendlyDate(input.date, todayIn(household.timezone)).toLowerCase();
+  const slotLabel = SLOT_LABELS[input.slot as Slot].toLowerCase();
+
+  notifyInBackground({
+    householdId: household.id,
+    actorId: userId,
+    kind: "meals",
+    notification: {
+      title: sameSlot.length > 1 ? `Two options for ${when}'s ${slotLabel}` : `${when}'s ${slotLabel}`,
+      body:
+        sameSlot.length > 1
+          ? `${me?.name ?? "Someone"} also wants ${dish?.name ?? "something"}. Vote for what you fancy.`
+          : `${me?.name ?? "Someone"} added ${dish?.name ?? "something"}.`,
+      url: `/day/${input.date}`,
+      // One notification per slot, replaced as it changes, rather than three in a row.
+      tag: `slot:${input.date}:${input.slot}`,
+    },
+  });
 
   return json({ entry, createdDish }, 201);
 });

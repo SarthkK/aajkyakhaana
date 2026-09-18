@@ -1,4 +1,5 @@
 import "server-only";
+import { logger } from "@/lib/logger";
 
 /**
  * One small wrapper over whichever model provider is configured.
@@ -8,6 +9,8 @@ import "server-only";
  * better answers and don't mind paying. Every provider is asked for structured output
  * the same way, so the rest of the app never has to care which one is in use.
  */
+
+const log = logger("ai");
 
 export type Provider = "groq" | "openrouter" | "anthropic";
 
@@ -93,10 +96,15 @@ export function missingKeyName() {
   return config().keyEnv;
 }
 
-export type ToolDef = {
+/** One structured request. Schema and wording both come from lib/ai/prompts. */
+export type AiRequest = {
+  /** Schema name sent to the provider; also the log label. */
   name: string;
   description: string;
-  input_schema: Record<string, unknown>;
+  schema: Record<string, unknown>;
+  system: string;
+  prompt: string;
+  maxTokens?: number;
 };
 
 export class AiError extends Error {
@@ -112,13 +120,8 @@ export class AiError extends Error {
  * Ask the model for a single structured object. We force a tool call rather than
  * parsing prose, so callers always get an object or a thrown error.
  */
-export async function askForObject<T>(opts: {
-  system: string;
-  prompt: string;
-  tool: ToolDef;
-  maxTokens?: number;
-}): Promise<T> {
-  return provider() === "anthropic" ? askAnthropic<T>(opts) : askOpenAICompatible<T>(opts);
+export async function askForObject<T>(req: AiRequest): Promise<T> {
+  return provider() === "anthropic" ? askAnthropic<T>(req) : askOpenAICompatible<T>(req);
 }
 
 /* -------------------------------- openrouter ------------------------------- */
@@ -142,12 +145,7 @@ const RETRY_DELAY_MS = 800;
  * The whole thing has to finish inside the hosting platform's function limit (60s on
  * Vercel), so every attempt shares one budget instead of getting a fresh timeout.
  */
-async function askOpenAICompatible<T>(opts: {
-  system: string;
-  prompt: string;
-  tool: ToolDef;
-  maxTokens?: number;
-}): Promise<T> {
+async function askOpenAICompatible<T>(opts: AiRequest): Promise<T> {
   const deadline = Date.now() + TOTAL_BUDGET_MS;
   const chain = modelChain();
   let lastError: unknown;
@@ -163,7 +161,7 @@ async function askOpenAICompatible<T>(opts: {
       // A real refusal (bad key, bad request) will fail the same way on every model.
       if (!(err instanceof AiError) || !err.retryable) throw err;
       if (index < chain.length - 1) {
-        console.log(`[ai] ${model} did not answer in time, trying ${chain[index + 1]}`);
+        log.warn("model did not answer in time, moving down the chain", { model, next: chain[index + 1] });
         await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
       }
     }
@@ -178,11 +176,7 @@ async function askOpenAICompatible<T>(opts: {
   throw lastError ?? new AiError("The AI call failed. Try again.", true);
 }
 
-async function callOpenRouter<T>(
-  opts: { system: string; prompt: string; tool: ToolDef; maxTokens?: number },
-  model: string,
-  timeoutMs: number,
-): Promise<T> {
+async function callOpenRouter<T>(opts: AiRequest, model: string, timeoutMs: number): Promise<T> {
   try {
     return await doCall<T>(opts, model, timeoutMs);
   } catch (err) {
@@ -193,16 +187,12 @@ async function callOpenRouter<T>(
     if (name === "TimeoutError" || name === "AbortError") {
       throw new AiError("The free model took too long to answer. Try again.", true);
     }
-    console.error("[ai] unexpected failure:", err);
+    log.error("unexpected provider failure", err, { model });
     throw new AiError("The AI call failed unexpectedly. Try again.", true);
   }
 }
 
-async function doCall<T>(
-  opts: { system: string; prompt: string; tool: ToolDef; maxTokens?: number },
-  model: string,
-  timeoutMs: number,
-): Promise<T> {
+async function doCall<T>(opts: AiRequest, model: string, timeoutMs: number): Promise<T> {
   const api = OPENAI_COMPATIBLE[provider()];
   const key = process.env[config().keyEnv];
   if (!api || !key) {
@@ -229,7 +219,7 @@ async function doCall<T>(
         messages: [
           {
             role: "system",
-            content: `${opts.system}\n\n${opts.tool.description}\nReply with JSON only — no prose, no code fences — matching this schema:\n${JSON.stringify(opts.tool.input_schema)}`,
+            content: `${opts.system}\n\n${opts.description}\nMatch this schema exactly:\n${JSON.stringify(opts.schema)}`,
           },
           { role: "user", content: opts.prompt },
         ],
@@ -238,11 +228,11 @@ async function doCall<T>(
         response_format: {
           type: "json_schema",
           json_schema: {
-            name: opts.tool.name,
+            name: opts.name,
             // Strict mode restricts which schema features are allowed and is unevenly
             // supported; we validate and normalise the result ourselves anyway.
             strict: false,
-            schema: opts.tool.input_schema,
+            schema: opts.schema,
           },
         },
         // Hybrid-thinking models take ~90s with reasoning on and ~2s with it off, for
@@ -270,7 +260,7 @@ async function doCall<T>(
   if (!message) throw new AiError("The model returned an empty answer. Try again.", true);
 
   if (body.model && body.model !== model) {
-    console.log(`[ai] ${model} was busy, ${body.model} answered instead`);
+    log.info("provider rerouted the request", { asked: model, answered: body.model });
   }
 
   if (message.content) return parseJson<T>(message.content, model);
@@ -305,7 +295,7 @@ async function readBody(res: Response): Promise<OpenRouterResponse> {
   try {
     return JSON.parse(cleaned) as OpenRouterResponse;
   } catch {
-    console.error("[ai] unparseable response body:", text.slice(0, 200));
+    log.error("unparseable response body", undefined, { body: text.slice(0, 200) });
     throw new AiError("The provider sent back something unreadable. Try again.", true);
   }
 }
@@ -390,12 +380,7 @@ function parseJson<T>(raw: string, model: string): T {
 
 /* --------------------------------- anthropic ------------------------------- */
 
-async function askAnthropic<T>(opts: {
-  system: string;
-  prompt: string;
-  tool: ToolDef;
-  maxTokens?: number;
-}): Promise<T> {
+async function askAnthropic<T>(opts: AiRequest): Promise<T> {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new AiError("AI is not configured. Add ANTHROPIC_API_KEY to your environment.");
   }
@@ -408,14 +393,8 @@ async function askAnthropic<T>(opts: {
     model: aiModel(),
     max_tokens: opts.maxTokens ?? 2000,
     system: opts.system,
-    tools: [
-      {
-        name: opts.tool.name,
-        description: opts.tool.description,
-        input_schema: opts.tool.input_schema as never,
-      },
-    ],
-    tool_choice: { type: "tool", name: opts.tool.name },
+    tools: [{ name: opts.name, description: opts.description, input_schema: opts.schema as never }],
+    tool_choice: { type: "tool", name: opts.name },
     messages: [{ role: "user", content: opts.prompt }],
   });
 
@@ -425,20 +404,3 @@ async function askAnthropic<T>(opts: {
   }
   return block.input as T;
 }
-
-/* ---------------------------------- prompt --------------------------------- */
-
-/** Shared framing so every prompt gets the same Indian-kitchen assumptions. */
-export const INDIAN_KITCHEN_CONTEXT = `You are helping a shared flat in India plan what their cook should make.
-Assume an ordinary Indian home kitchen and an Indian grocery run (kirana store, Blinkit, Zepto or the local sabzi mandi).
-
-Conventions you must follow:
-- Dish names stay in the way Indians say them: "Rajma Chawal", "Aloo Paratha", "Dal Tadka", "Bhindi Masala".
-- Quantities are what an Indian household actually buys: grams/kg for vegetables, pulses and meat; ml/l for milk and oil;
-  tsp/tbsp for spices; "piece" for eggs, onions, lemons, bread; "bunch" for coriander, methi, palak.
-- Everyday spices and staples (salt, haldi, red chilli powder, dhania powder, jeera, garam masala, cooking oil, ghee,
-  mustard seeds, hing, sugar) are almost always already in the kitchen. Mark those as pantry staples.
-- Nutrition numbers are per serving, for the dish as it is actually eaten at home (with the usual amount of oil/ghee),
-  and should be realistic Indian portion sizes — one katori dal, two rotis, one plate rice.
-
-Answer only by calling the provided tool. Do not write any prose.`;

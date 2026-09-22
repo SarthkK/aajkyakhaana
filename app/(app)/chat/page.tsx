@@ -185,7 +185,7 @@ export default function ChatPage() {
 
       <div
         className="flex flex-col"
-        style={{ minHeight: "calc(100dvh - 8.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom))" }}
+        style={{ minHeight: "calc(100dvh - 4rem - var(--tabbar-h) - env(safe-area-inset-top) - env(safe-area-inset-bottom))" }}
       >
         <div className="flex-1 px-4 pt-4 pb-2">
         {loading && (
@@ -318,7 +318,7 @@ export default function ChatPage() {
             whether the conversation is three messages or three hundred. */}
         <div
           className="sticky z-30 bg-bg/95 backdrop-blur border-t border-line"
-          style={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
+          style={{ bottom: "calc(var(--tabbar-h) + env(safe-area-inset-bottom))" }}
         >
           {/* The two things worth doing here that a plain chat cannot: ask the app what
               to cook, or make everyone decide together. */}

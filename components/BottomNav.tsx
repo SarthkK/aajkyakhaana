@@ -19,11 +19,13 @@ export function BottomNav() {
   const pathname = usePathname();
 
   return (
+    // The height is declared rather than left to the content, so --tabbar-h is a fact and
+    // not a guess — see app/globals.css.
     <nav
       className="fixed bottom-0 inset-x-0 z-40 bg-surface/90 backdrop-blur-lg border-t border-line"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{ height: "calc(var(--tabbar-h) + env(safe-area-inset-bottom))", paddingBottom: "env(safe-area-inset-bottom)" }}
     >
-      <ul className="max-w-md mx-auto flex">
+      <ul className="max-w-md mx-auto flex h-full">
         {TABS.map(({ href, label, icon: Icon, data }) => {
           // /day/... is part of planning, so keep that tab lit while browsing a date.
           const active =
@@ -47,7 +49,7 @@ export function BottomNav() {
                 onPointerEnter={warm}
                 onClick={() => !active && tap()}
                 aria-current={active ? "page" : undefined}
-                className="block"
+                className="flex h-full items-center justify-center"
               >
                 <Tab icon={Icon} label={label} active={active} />
               </Link>

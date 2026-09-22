@@ -17,10 +17,14 @@ import { waitUntil } from "@vercel/functions";
  * correct — hence the fallback rather than a hard requirement.
  */
 export function runAfterResponse(work: Promise<unknown>, onError?: (err: unknown) => void) {
+  // Starting the promise here is what makes it run at all; waitUntil only asks the
+  // platform not to suspend the instance under it. Off Vercel that call is a no-op (it
+  // does not throw), which is the right answer there — a dev server or a test process
+  // outlives the handler on its own. The catch is belt and braces for other hosts.
   const guarded = work.catch((err: unknown) => onError?.(err));
   try {
     waitUntil(guarded);
   } catch {
-    void guarded; // local dev, tests and scripts: the process outlives the handler anyway
+    void guarded;
   }
 }

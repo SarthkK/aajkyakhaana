@@ -15,7 +15,7 @@
     "test": "npm run test:unit && npm run test:e2e",
     "test:chat": "node tests/chat-ai.mjs",
     "test:pantry": "node tests/pantry.mjs",
-    "test:realtime": "node tests/realtime.mjs"
+    "test:realtime": "node tests/realtime.mjs && node tests/realtime-live.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",

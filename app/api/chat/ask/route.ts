@@ -5,6 +5,7 @@ import { requireContext, handler, json, ApiError } from "@/lib/api";
 import { aiEnabled, missingKeyName } from "@/lib/ai/client";
 import { askChef } from "@/lib/services/chef";
 import { notifyInBackground } from "@/lib/services/notifications";
+import { publish, REALTIME_EVENTS } from "@/lib/realtime/server";
 import { logger } from "@/lib/logger";
 
 export const maxDuration = 60;
@@ -34,6 +35,10 @@ export const POST = handler(async () => {
     throw new ApiError("Already answered — ask something new.", 409);
   }
 
+  // Tell everyone the assistant is composing before the slow part, so a flatmate
+  // watching sees something happening rather than an unanswered question.
+  publish(household.id, REALTIME_EVENTS.thinking, { by: userId });
+
   const answer = await askChef(household);
 
   const [row] = await db
@@ -47,6 +52,7 @@ export const POST = handler(async () => {
     })
     .returning();
 
+  publish(household.id, REALTIME_EVENTS.feed, { cursor: row.id });
   log.info("posted an assistant reply", { householdId: household.id });
 
   notifyInBackground({

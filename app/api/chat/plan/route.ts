@@ -5,6 +5,7 @@ import { requireContext, handler, json, ApiError } from "@/lib/api";
 import { aiEnabled, missingKeyName } from "@/lib/ai/client";
 import { planDays } from "@/lib/services/planner";
 import { notifyInBackground } from "@/lib/services/notifications";
+import { publish, REALTIME_EVENTS } from "@/lib/realtime/server";
 import type { Slot } from "@/lib/dates";
 
 export const maxDuration = 60;
@@ -54,6 +55,8 @@ export const POST = handler(async (req: Request) => {
       meta: null,
     })
     .returning();
+
+  publish(household.id, REALTIME_EVENTS.feed, { cursor: row.id });
 
   notifyInBackground({
     householdId: household.id,

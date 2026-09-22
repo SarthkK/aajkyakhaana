@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { dishes, messages, planEntries, pollVotes, votes } from "@/lib/db/schema";
 import { requireContext, handler, json, ApiError } from "@/lib/api";
 import { recordEvent } from "@/lib/services/chat";
+import { publish, REALTIME_EVENTS } from "@/lib/realtime/server";
 import { friendlyDate, todayIn, SLOT_LABELS, type Slot } from "@/lib/dates";
 import { logger } from "@/lib/logger";
 
@@ -90,6 +91,7 @@ export const POST = handler(async (_req: Request, ctx: Ctx) => {
     meta: { dishName: winner.name, slot, date },
   });
 
+  publish(household.id, REALTIME_EVENTS.feed, {});
   log.info("poll resolved", { householdId: household.id, winner: winner.name, tally });
   return json({ winner: winner.name, tally, createdDish });
 });

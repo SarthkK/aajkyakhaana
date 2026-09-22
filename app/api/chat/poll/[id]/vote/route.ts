@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { messages, pollVotes } from "@/lib/db/schema";
 import { requireContext, handler, json, ApiError } from "@/lib/api";
+import { publish, REALTIME_EVENTS } from "@/lib/realtime/server";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -34,5 +35,10 @@ export const POST = handler(async (req: Request, ctx: Ctx) => {
   const votes = await db.select({ optionIndex: pollVotes.optionIndex, userId: pollVotes.userId }).from(pollVotes).where(eq(pollVotes.messageId, messageId));
 
   const tally = (poll.meta?.options ?? []).map((_, i) => votes.filter((v) => v.optionIndex === i).length);
+
+  // A vote does not move the cursor, so nudge without one — everyone refetches the
+  // page and sees the bar move.
+  publish(household.id, REALTIME_EVENTS.feed, {});
+
   return json({ tally, myVote: option });
 });

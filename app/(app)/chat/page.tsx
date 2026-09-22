@@ -30,7 +30,7 @@ function dayOf(iso: string) {
 export default function ChatPage() {
   const { user, household } = useSession();
   const toast = useToast();
-  const { messages, loading, error, live, append, reload } = useChatFeed();
+  const { messages, loading, error, live, realtime, assistantThinking, append, reload } = useChatFeed();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [thinking, setThinking] = useState(false);
@@ -41,7 +41,7 @@ export default function ChatPage() {
   // Follow the conversation as it grows, the way every chat does.
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: messages.length > 20 ? "auto" : "smooth" });
-  }, [messages.length]);
+  }, [messages.length, assistantThinking]);
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
@@ -158,7 +158,13 @@ export default function ChatPage() {
     <>
       <AppHeader
         title={household.name}
-        subtitle={live ? "Everyone in the flat sees this" : "Paused — tap to catch up"}
+        subtitle={
+          !live
+            ? "Paused — tap to catch up"
+            : realtime
+              ? "Live · everyone in the flat sees this"
+              : "Everyone in the flat sees this"
+        }
         action={
           !live ? (
             <span className="text-muted p-2" title="Polling paused while you were away">
@@ -276,6 +282,25 @@ export default function ChatPage() {
             );
           })}
         </div>
+
+            {assistantThinking && (
+            <div className="flex gap-2.5 animate-in">
+              <span className="size-8 rounded-full bg-accent-soft border border-accent/30 grid place-items-center shrink-0 text-accent-text">
+                <Sparkles className="size-4" />
+              </span>
+              <div className="rounded-2xl rounded-bl-md px-3.5 py-3 bg-surface border border-accent/25 inline-flex items-center gap-1.5">
+                <span className="sr-only">Kitchen AI is thinking</span>
+                {[0, 1, 2].map((i) => (
+                  <span
+                    key={i}
+                    aria-hidden
+                    className="size-1.5 rounded-full bg-accent-text/70 animate-bounce"
+                    style={{ animationDelay: `${i * 140}ms`, animationDuration: "900ms" }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
 
           <div ref={bottom} />
         </div>

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { requireContext, handler, json } from "@/lib/api";
 import { messagesSince, recentMessages, postMessage, latestMessageId, MAX_BODY } from "@/lib/services/chat";
 import { notifyInBackground } from "@/lib/services/notifications";
+import { publish, REALTIME_EVENTS } from "@/lib/realtime/server";
 
 const querySchema = z.object({ after: z.coerce.number().int().min(0).optional() });
 const postSchema = z.object({ body: z.string().trim().min(1, "Say something").max(MAX_BODY) });
@@ -27,6 +28,7 @@ export const POST = handler(async (req: Request) => {
   const { body } = postSchema.parse(await req.json());
 
   const message = await postMessage({ householdId: household.id, userId, body });
+  publish(household.id, REALTIME_EVENTS.feed, { cursor: message.id });
 
   notifyInBackground({
     householdId: household.id,

@@ -6,6 +6,7 @@ import { requireContext, handler, json, ApiError } from "@/lib/api";
 import { aiEnabled, missingKeyName } from "@/lib/ai/client";
 import { buildSuggestions } from "@/lib/services/suggest";
 import { notifyInBackground } from "@/lib/services/notifications";
+import { publish, REALTIME_EVENTS } from "@/lib/realtime/server";
 import { isValidDate, todayIn, SLOT_LABELS, friendlyDate, type Slot } from "@/lib/dates";
 import { logger } from "@/lib/logger";
 
@@ -67,6 +68,7 @@ export const POST = handler(async (req: Request) => {
     })
     .returning();
 
+  publish(household.id, REALTIME_EVENTS.feed, { cursor: row.id });
   log.info("started a poll", { householdId: household.id, slot: input.slot, date });
 
   notifyInBackground({

@@ -100,28 +100,49 @@ the day's totals down and silently invents shortfalls.
 
 ---
 
-## Free-tier budgets, and why polling looks the way it does
+## Realtime, and the polling underneath it
 
-The chat polls every 3 seconds, and that is cheap **only** because of three rules in
-`lib/useChatFeed.ts`:
+The chat is live when `ABLY_API_KEY` is set and polls when it is not. Both paths are
+real and both are tested — do not remove the fallback.
 
-1. It polls `/api/chat/cursor`, which returns one number from an index — not the feed.
-   Content is fetched only when that number moves. Message ids are `bigserial`
-   precisely so this is an index scan.
-2. It stops while the tab is hidden.
-3. It stops after five idle minutes.
+**The socket carries a nudge, not content.** The message is "household X moved to
+cursor N" and nothing else; the client then fetches from our own API. Three reasons,
+in order of importance:
+
+1. Nothing anyone writes — chat, AI replies, names — passes through a third party,
+   which would otherwise undo the pseudonymisation in `lib/privacy.ts`.
+2. It replaces only the *timer*, so every fetch path is the one polling already used.
+   That is why the fallback is free rather than a second implementation.
+3. A few bytes per event means the 6M/month free allowance is unreachable.
+
+A nudge for a new message carries its cursor, so only the new part is fetched. A vote
+or a settled poll changes a row already on screen **without moving the cursor**, so it
+carries none and triggers a full refresh. Getting that wrong means tallies silently
+never update.
+
+Tokens are minted server-side, scoped to one channel, and grant subscribe only — a
+browser cannot publish, so nobody can forge a nudge or listen to another flat.
+
+### Why polling looks the way it does
+
+Three rules in `lib/useChatFeed.ts`, all about keeping a free-tier database cheap:
+
+1. Poll `/api/chat/cursor`, which returns one number from an index — not the feed.
+   Message ids are `bigserial` precisely so this is an index scan.
+2. Stop while the tab is hidden.
+3. Stop after five idle minutes.
 
 Rule 3 is the one that matters. **Neon bills for the database being awake, not for
-queries**, and it only sleeps after 5 minutes of no activity. A tab left open
-overnight would hold it awake till morning — that, not the poll interval, is what
-would exhaust the budget. 3s and 10s cost effectively the same.
+queries**, and it only sleeps after 5 minutes of no activity. A tab left open overnight
+would hold it awake till morning — that, not the interval, is what would exhaust the
+budget. 3s and 10s cost effectively the same.
 
-WebSockets were considered and rejected: Vercel Hobby caps any connection at 300s, so
-a socket means reconnect handling every five minutes, and an idle connection guarantees
-the database never sleeps. Push notifications already cover the case that matters —
-someone who is *not* looking at the app.
+A slow 30s heartbeat runs even on realtime, so a dropped nudge costs seconds rather
+than leaving the chat silently stale.
 
----
+**Sockets terminating at our own app do not work**, which is why this uses a service:
+Vercel Hobby caps any connection at 300s, and serverless invocations cannot push to
+each other, so there is no way for one instance to notify a stream held by another.
 
 ## Layout and structure
 
@@ -148,6 +169,7 @@ npm run test:unit      # pure logic, no network
 npm run test:e2e       # every feature, against a running server
 npm run test:chat      # the chat assistant and the in-chat vote (calls a real model)
 npm run test:pantry    # ingredient reconciliation, pantry, multi-day planner
+npm run test:realtime  # token scoping, and that everything works without a key
 BASE=https://aajkyakhaana.vercel.app npm run test:e2e
 ```
 

@@ -197,13 +197,21 @@ npm run test:realtime  # token scoping, and that everything works without a key
 BASE=https://aajkyakhaana.vercel.app npm run test:e2e
 ```
 
-The e2e suite creates accounts as `e2e-<n>-<timestamp>@test.in`. **Always clean up
-afterwards**, especially against production:
+Every suite signs up throwaway accounts, and they all end in `@test.in` — but each uses
+its own prefix (`e2e-`, `c1-`/`c2-`/`c3-`, `lr1-`/`lr2-`/`lr3-`, `p-`, `rt-`). Deleting
+only `e2e-%` leaves the rest behind, which is how a database fills up with flats nobody
+lives in. **Always clean up afterwards**, especially against production. Look first —
+real people are in here:
 
 ```sql
-delete from users where email like 'e2e-%@test.in';
+select email from users where email like '%@test.in';   -- check before deleting
+delete from users where email like '%@test.in';
 delete from households where id not in (select household_id from household_members);
 ```
+
+Production's `DATABASE_URL` is a Vercel **Secret**, so it cannot be read back with
+`vercel env pull` — that returns `[SENSITIVE]`. Cleaning production needs the connection
+string from Neon directly.
 
 **Run the AI checks twice.** They are the only non-deterministic part, and running
 twice is what caught the fallback models being completely broken — the first run

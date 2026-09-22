@@ -208,15 +208,42 @@ export const shoppingItems = pgTable("shopping_items", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("shopping_items_household_idx").on(t.householdId, t.checked)]);
 
+/* ------------------------------ AI suggestions ----------------------------- */
+
+/**
+ * What the AI has already offered this flat.
+ *
+ * Without this, only *planned* meals counted as history — so a suggestion you turned
+ * down came straight back the next time you asked, and the same two or three dishes
+ * circled forever. Rows older than the lookback window are simply ignored, and the
+ * table is small enough not to need pruning.
+ */
+export const suggestionLog = pgTable("suggestion_log", {
+  id: bigserial("id", { mode: "number" }).primaryKey(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  /** The dish name as offered, which is what we need to avoid repeating. */
+  name: text("name").notNull(),
+  slot: text("slot").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("suggestion_log_household_idx").on(t.householdId, t.createdAt)]);
+
 /* ----------------------------------- chat ---------------------------------- */
 
 /** What a row in the feed is. Text is a person talking; the rest are things that happened. */
-export type MessageKind = "text" | "meal_added" | "meal_removed" | "meal_settled";
+export type MessageKind = "text" | "assistant" | "poll" | "meal_added" | "meal_removed" | "meal_settled";
 
 export type MessageMeta = {
   dishName?: string;
   slot?: string;
   date?: string;
+  /** Dishes the assistant recommended, offered as one-tap adds. */
+  dishIdeas?: string[];
+  /** For a poll: the options on offer, and the meal they are competing for. */
+  options?: { name: string; isVeg: boolean; reason: string }[];
+  pollSlot?: string;
+  pollDate?: string;
+  /** Set once someone puts the winner on the plan, so it cannot happen twice. */
+  resolvedDish?: string;
 };
 
 /**
@@ -247,6 +274,15 @@ export const messageReads = pgTable("message_reads", {
   lastReadId: integer("last_read_id").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [uniqueIndex("message_reads_unique").on(t.householdId, t.userId)]);
+
+/** One tap per person per poll. Changing your mind replaces your pick. */
+export const pollVotes = pgTable("poll_votes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  messageId: integer("message_id").notNull(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  optionIndex: integer("option_index").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("poll_votes_unique").on(t.messageId, t.userId)]);
 
 /* ------------------------------ notifications ------------------------------ */
 
@@ -331,3 +367,5 @@ export type PlanEntry = typeof planEntries.$inferSelect;
 export type ShoppingItem = typeof shoppingItems.$inferSelect;
 export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type Message = typeof messages.$inferSelect;
+export type SuggestionLogRow = typeof suggestionLog.$inferSelect;
+export type PollVote = typeof pollVotes.$inferSelect;

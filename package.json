@@ -12,7 +12,8 @@
     "db:studio": "drizzle-kit studio",
     "test:e2e": "node tests/e2e.mjs",
     "test:unit": "tsx tests/merge.test.mts && tsx tests/platform.test.mts && NODE_OPTIONS=--conditions=react-server tsx tests/ai.test.mts",
-    "test": "npm run test:unit && npm run test:e2e"
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:chat": "node tests/chat-ai.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.126.0",

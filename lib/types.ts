@@ -133,10 +133,22 @@ export type SuggestionView = {
 
 export type FeedMessage = {
   id: number;
-  kind: "text" | "meal_added" | "meal_removed" | "meal_settled";
+  kind: "text" | "assistant" | "poll" | "meal_added" | "meal_removed" | "meal_settled";
   body: string;
   planEntryId: string | null;
-  meta: { dishName?: string; slot?: string; date?: string } | null;
+  meta: {
+    dishName?: string;
+    slot?: string;
+    date?: string;
+    dishIdeas?: string[];
+    options?: { name: string; isVeg: boolean; reason: string }[];
+    pollSlot?: string;
+    pollDate?: string;
+    resolvedDish?: string;
+  } | null;
+  /** Poll only: how many people picked each option, and which one you picked. */
+  pollTally?: number[];
+  myPollVote?: number | null;
   createdAt: string;
   userId: string | null;
   authorName: string | null;

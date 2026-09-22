@@ -6,6 +6,7 @@ No framework, no config — plain scripts you can run one at a time.
 |---|---|
 | `npm run test:unit` | Pure logic: shopping-list merging, browser detection, AI error handling |
 | `npm run test:e2e` | Every feature, against a running server |
+| `npm run test:chat` | The chat assistant and the in-chat vote (calls a real model) |
 | `npm test` | Both |
 
 ## The end-to-end suite

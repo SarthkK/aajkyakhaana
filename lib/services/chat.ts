@@ -1,7 +1,7 @@
 import "server-only";
-import { and, asc, desc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { messages, users, type MessageKind, type MessageMeta } from "@/lib/db/schema";
+import { messages, pollVotes, users, type MessageKind, type MessageMeta } from "@/lib/db/schema";
 import { logger } from "@/lib/logger";
 
 const log = logger("chat");
@@ -19,7 +19,37 @@ export type FeedMessage = {
   userId: string | null;
   authorName: string | null;
   authorEmoji: string | null;
+  /** Poll rows only: how many picked each option, and which one you picked. */
+  pollTally?: number[];
+  myPollVote?: number | null;
 };
+
+/**
+ * Fills in vote counts for any polls in a page of the feed.
+ *
+ * Done in one query for the whole page rather than per row — a poll is just another
+ * message, and the feed is fetched constantly, so this must not become N+1.
+ */
+async function withPollTallies(rows: FeedMessage[], viewerId: string): Promise<FeedMessage[]> {
+  const pollIds = rows.filter((r) => r.kind === "poll").map((r) => r.id);
+  if (pollIds.length === 0) return rows;
+
+  const cast = await db
+    .select({ messageId: pollVotes.messageId, userId: pollVotes.userId, optionIndex: pollVotes.optionIndex })
+    .from(pollVotes)
+    .where(inArray(pollVotes.messageId, pollIds));
+
+  return rows.map((row) => {
+    if (row.kind !== "poll") return row;
+    const mine = cast.find((v) => v.messageId === row.id && v.userId === viewerId);
+    const options = row.meta?.options ?? [];
+    return {
+      ...row,
+      pollTally: options.map((_, i) => cast.filter((v) => v.messageId === row.id && v.optionIndex === i).length),
+      myPollVote: mine ? mine.optionIndex : null,
+    };
+  });
+}
 
 /**
  * The newest id in this flat's feed, and nothing else.
@@ -38,7 +68,7 @@ export async function latestMessageId(householdId: string): Promise<number> {
 }
 
 /** Everything after a cursor, oldest first. Used after the cursor says something changed. */
-export async function messagesSince(householdId: string, after: number): Promise<FeedMessage[]> {
+export async function messagesSince(householdId: string, after: number, viewerId: string): Promise<FeedMessage[]> {
   const rows = await db
     .select({
       id: messages.id,
@@ -57,11 +87,11 @@ export async function messagesSince(householdId: string, after: number): Promise
     .orderBy(asc(messages.id))
     .limit(PAGE_SIZE);
 
-  return rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+  return withPollTallies(rows.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })), viewerId);
 }
 
 /** The most recent page, oldest first — what a freshly opened chat shows. */
-export async function recentMessages(householdId: string): Promise<FeedMessage[]> {
+export async function recentMessages(householdId: string, viewerId: string): Promise<FeedMessage[]> {
   const rows = await db
     .select({
       id: messages.id,
@@ -80,7 +110,7 @@ export async function recentMessages(householdId: string): Promise<FeedMessage[]
     .orderBy(desc(messages.id))
     .limit(PAGE_SIZE);
 
-  return rows.reverse().map((r) => ({ ...r, createdAt: r.createdAt.toISOString() }));
+  return withPollTallies(rows.reverse().map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })), viewerId);
 }
 
 export async function postMessage(input: {

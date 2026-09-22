@@ -41,6 +41,8 @@ export type SuggestContext = {
   plannedToday: { slot: string; name: string }[];
   members: { name: string; diet: string; goal: string; allergies: string[]; dislikes: string[] }[];
   gaps: { nutrient: string; pctOfTarget: number }[];
+  /** Offered in the last few days and not taken up — do not offer them again. */
+  recentlySuggested: string[];
 };
 
 export function user(ctx: SuggestContext) {
@@ -68,8 +70,10 @@ export function user(ctx: SuggestContext) {
   if (ctx.library.length) {
     lines.push(
       ``,
-      `Dishes already saved in their library. If you suggest one of these, copy its id`,
-      `exactly into existing_dish_id. For anything new, existing_dish_id must be null.`,
+      `Dishes already saved in their library. At most ONE of your three may come from`,
+      `this list — the other two must be something they have not saved, or the same few`,
+      `dishes come back every time. If you pick one, copy its id exactly into`,
+      `existing_dish_id. For anything new, existing_dish_id must be null.`,
       ...ctx.library.map(
         (d) =>
           `- id ${d.id} — ${d.name} (${d.course}, ${d.isVeg ? "veg" : "non-veg"}` +
@@ -84,8 +88,17 @@ export function user(ctx: SuggestContext) {
   if (ctx.recent.length) {
     lines.push(
       ``,
-      `Eaten recently — avoid repeating these:`,
+      `Eaten recently — do not repeat any of these:`,
       ...ctx.recent.map((r) => `- ${r.date} ${r.slot}: ${r.name}`),
+    );
+  }
+
+  if (ctx.recentlySuggested.length) {
+    lines.push(
+      ``,
+      `Already offered in the last few days and turned down. Suggesting them again is`,
+      `the single most annoying thing you can do, so do not:`,
+      ...ctx.recentlySuggested.map((name) => `- ${name}`),
     );
   }
 
@@ -101,9 +114,19 @@ export function user(ctx: SuggestContext) {
   lines.push(
     ``,
     `Hard rules:`,
-    `- Respect every allergy absolutely.`,
+    `- Respect every allergy absolutely, and every dislike listed above.`,
     `- If anyone is vegetarian, at least two of the three options must be vegetarian.`,
+    `  The third should be non-veg if anyone eats it, so they get something too.`,
     `- Keep it realistic for a cook making one batch for the whole flat on a weekday.`,
+    ``,
+    `The three must be genuinely different from each other, not three versions of the`,
+    `same meal. Vary them on all of these:`,
+    `- main protein — paneer, a dal, chana/rajma, egg, chicken, soya`,
+    `- style — dry sabzi, gravy, one-pot rice, stuffed bread, curry with roti`,
+    `- region — Punjabi, South Indian, Bengali, Gujarati, Maharashtrian, Indo-Chinese`,
+    ``,
+    `Paneer dishes are the obvious answer and get suggested far too often. Use paneer`,
+    `in at most one of the three, and only if it genuinely beats a dal or a chana.`,
     ``,
     `Return exactly three suggestions.`,
   );

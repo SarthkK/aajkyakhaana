@@ -8,12 +8,15 @@ const postSchema = z.object({ body: z.string().trim().min(1, "Say something").ma
 
 /** With `after`, only what is new. Without it, the most recent page. */
 export const GET = handler(async (req: Request) => {
-  const { household } = await requireContext();
+  const { userId, household } = await requireContext();
   const after = querySchema.parse({
     after: new URL(req.url).searchParams.get("after") ?? undefined,
   }).after;
 
-  const list = after !== undefined ? await messagesSince(household.id, after) : await recentMessages(household.id);
+  const list =
+    after !== undefined
+      ? await messagesSince(household.id, after, userId)
+      : await recentMessages(household.id, userId);
   const latest = list.length ? list[list.length - 1].id : await latestMessageId(household.id);
 
   return json({ messages: list, latest });

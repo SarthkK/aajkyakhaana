@@ -2,21 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Send, CalendarPlus, CalendarMinus, ChefHat, PauseCircle } from "lucide-react";
+import { Send, CalendarPlus, CalendarMinus, ChefHat, PauseCircle, Sparkles, Dices, Plus } from "lucide-react";
 import { api } from "@/lib/client";
 import { useChatFeed } from "@/lib/useChatFeed";
 import { AppHeader } from "@/components/AppHeader";
 import { Input, Button, ErrorNote, Avatar, EmptyState, cx } from "@/components/ui";
+import { ChatPoll } from "@/components/ChatPoll";
 import { Skeleton } from "@/components/Skeleton";
 import { useSession } from "@/components/SessionProvider";
 import { useToast } from "@/components/Toast";
 import type { FeedMessage } from "@/lib/types";
 
-const EVENT_ICONS = {
+const EVENT_ICONS: Partial<Record<FeedMessage["kind"], typeof CalendarPlus>> = {
   meal_added: CalendarPlus,
   meal_removed: CalendarMinus,
   meal_settled: ChefHat,
-} as const;
+};
 
 function timeOf(iso: string) {
   return new Date(iso).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true });
@@ -29,9 +30,11 @@ function dayOf(iso: string) {
 export default function ChatPage() {
   const { user, household } = useSession();
   const toast = useToast();
-  const { messages, loading, error, live, append } = useChatFeed();
+  const { messages, loading, error, live, append, reload } = useChatFeed();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [thinking, setThinking] = useState(false);
+  const [starting, setStarting] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
 
   // Follow the conversation as it grows, the way every chat does.
@@ -54,6 +57,61 @@ export default function ChatPage() {
       toast(err instanceof Error ? err.message : "Could not send that", { tone: "bad" });
     } finally {
       setSending(false);
+    }
+  }
+
+  /**
+   * Posts the question first, then fetches the answer — so everyone sees what was
+   * asked straight away and the reply lands a moment later, the way a person typing
+   * would. A slow or failed model never costs anyone their message.
+   */
+  async function ask() {
+    const question = draft.trim();
+    if (thinking) return;
+
+    setThinking(true);
+    setDraft("");
+    try {
+      if (question) {
+        const posted = await api.post<{ message: FeedMessage }>("/api/chat", { body: question });
+        append(posted.message);
+      }
+      const res = await api.post<{ message: FeedMessage }>("/api/chat/ask");
+      append(res.message);
+    } catch (err) {
+      if (question) setDraft(question);
+      toast(err instanceof Error ? err.message : "Couldn't reach the kitchen AI", { tone: "bad" });
+    } finally {
+      setThinking(false);
+    }
+  }
+
+  async function startVote() {
+    setStarting(true);
+    try {
+      await api.post("/api/chat/poll", { slot: "dinner" });
+      await reload();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not start a vote", { tone: "bad" });
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  /** Adds something the assistant recommended straight onto tonight's plan. */
+  async function addIdea(name: string) {
+    try {
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: household.timezone }).format(new Date());
+      const res = await api.post<{ createdDish: { id: string } | null }>("/api/plan", {
+        date: today,
+        slot: "dinner",
+        dishName: name,
+      });
+      toast(`${name} added to tonight's dinner`);
+      if (res.createdDish) void api.post(`/api/dishes/${res.createdDish.id}/enrich`).catch(() => {});
+      await reload();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "Could not add that", { tone: "bad" });
     }
   }
 
@@ -108,7 +166,7 @@ export default function ChatPage() {
           <EmptyState
             emoji="💬"
             title="Nothing said yet"
-            body="Anything anyone plans shows up here too, so the argument and the decision stay in one place."
+            body="Anything anyone plans shows up here too. Ask the kitchen AI, or start a vote and let the flat decide."
           />
         )}
 
@@ -127,7 +185,35 @@ export default function ChatPage() {
                   </div>
                 )}
 
-                {Icon ? (
+                {m.kind === "poll" ? (
+                  <ChatPoll message={m} onChanged={reload} />
+                ) : m.kind === "assistant" ? (
+                  <div className="flex gap-2.5 animate-in">
+                    <span className="size-8 rounded-full bg-accent-soft border border-accent/30 grid place-items-center shrink-0 text-accent-text">
+                      <Sparkles className="size-4" />
+                    </span>
+                    <div className="max-w-[82%] min-w-0">
+                      <p className="text-[11px] text-muted mb-0.5 ml-1">Kitchen AI</p>
+                      <div className="rounded-2xl rounded-bl-md px-3.5 py-2.5 bg-surface border border-accent/25">
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{m.body}</p>
+                        {m.meta?.dishIdeas?.length ? (
+                          <div className="flex flex-wrap gap-1.5 mt-2.5 pt-2.5 border-t border-line">
+                            {m.meta.dishIdeas.map((idea) => (
+                              <button
+                                key={idea}
+                                onClick={() => addIdea(idea)}
+                                className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-lg bg-accent-soft border border-accent/30 text-accent-text pressable"
+                              >
+                                <Plus className="size-3" /> {idea}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                      <p className="text-[10px] text-muted mt-0.5 ml-1">{timeOf(m.createdAt)}</p>
+                    </div>
+                  </div>
+                ) : Icon ? (
                   // Plan activity: a quiet line, tappable through to the day it changed.
                   <Link
                     href={m.meta?.date ? `/day/${m.meta.date}` : "/today"}
@@ -172,11 +258,23 @@ export default function ChatPage() {
 
         {/* Sits just above the fixed bottom nav rather than under it, and stays there
             whether the conversation is three messages or three hundred. */}
-        <form
-          onSubmit={send}
-          className="sticky z-30 bg-bg/95 backdrop-blur border-t border-line px-4 py-3 flex gap-2"
+        <div
+          className="sticky z-30 bg-bg/95 backdrop-blur border-t border-line"
           style={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
         >
+          {/* The two things worth doing here that a plain chat cannot: ask the app what
+              to cook, or make everyone decide together. */}
+          <div className="flex gap-2 px-4 pt-2.5">
+            <Button size="sm" variant="secondary" className="flex-1" onClick={ask} loading={thinking}>
+              <Sparkles className="size-3.5 text-accent" />
+              {draft.trim() ? "Ask this" : "Ask the AI"}
+            </Button>
+            <Button size="sm" variant="secondary" className="flex-1" onClick={startVote} loading={starting}>
+              <Dices className="size-3.5 text-accent" /> Start a vote
+            </Button>
+          </div>
+
+          <form onSubmit={send} className="px-4 py-3 flex gap-2">
           <Input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -184,10 +282,11 @@ export default function ChatPage() {
             maxLength={1000}
             enterKeyHint="send"
           />
-          <Button type="submit" disabled={!draft.trim()} loading={sending} className="px-4 shrink-0">
-            <Send className="size-4" />
-          </Button>
-        </form>
+            <Button type="submit" disabled={!draft.trim()} loading={sending} className="px-4 shrink-0">
+              <Send className="size-4" />
+            </Button>
+          </form>
+        </div>
       </div>
     </>
   );

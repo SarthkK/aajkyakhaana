@@ -39,6 +39,7 @@ export function useChatFeed() {
 
   const cursor = useRef(0);
   const inFlight = useRef(false);
+  const pendingPull = useRef(false);
   const lastActivity = useRef(0);
   const alive = useRef(true);
   const realtimeRef = useRef(false);
@@ -61,8 +62,12 @@ export function useChatFeed() {
       return added.length ? [...updated, ...added] : updated;
     });
     cursor.current = Math.max(cursor.current, ...incoming.map((m) => m.id));
-    // Anything arriving means the assistant is no longer mid-thought.
-    setAssistantThinking(false);
+
+    // Only the assistant's own reply ends the indicator. Clearing it on *any* message
+    // raced with the question that triggered the assistant in the first place: that
+    // message's fetch lands just after the "thinking" signal and wiped it instantly,
+    // so the dots never appeared for anyone but the asker.
+    if (incoming.some((m) => m.kind === "assistant")) setAssistantThinking(false);
   }, []);
 
   const load = useCallback(
@@ -87,17 +92,31 @@ export function useChatFeed() {
   /** Pulls anything newer than the cursor. Shared by the nudge and the timer. */
   const pull = useCallback(
     async (knownCursor?: number) => {
-      if (inFlight.current) return;
       if (knownCursor !== undefined && knownCursor <= cursor.current) return;
+
+      // A nudge that lands mid-fetch must be remembered, not dropped. Asking a question
+      // fires three signals inside a second — the message, "thinking", then the reply —
+      // so the reply's nudge almost always arrives while the message's fetch is still
+      // out. Dropping it left the dots spinning over a stale feed until the 30s
+      // heartbeat: the exact "it's broken" moment this whole path exists to avoid.
+      if (inFlight.current) {
+        pendingPull.current = true;
+        return;
+      }
 
       inFlight.current = true;
       try {
-        const res = await api.get<{ messages: FeedMessage[] }>(`/api/chat?after=${cursor.current}`);
-        if (alive.current) merge(res.messages);
+        do {
+          pendingPull.current = false;
+          const res = await api.get<{ messages: FeedMessage[] }>(`/api/chat?after=${cursor.current}`);
+          if (!alive.current) return;
+          merge(res.messages);
+        } while (pendingPull.current && alive.current);
       } catch (err) {
         logClient.warn("chat refresh failed", err);
       } finally {
         inFlight.current = false;
+        pendingPull.current = false;
       }
     },
     [merge],

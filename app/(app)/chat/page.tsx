@@ -27,6 +27,15 @@ function dayOf(iso: string) {
   return new Date(iso).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" });
 }
 
+/**
+ * Replies written before the model's blanks were dropped still hold `[""]`, which
+ * rendered as a nameless "+" chip that added a nameless dish. The source is fixed;
+ * this keeps the rows already in the flat's history from showing it.
+ */
+function ideasOf(m: FeedMessage) {
+  return (m.meta?.dishIdeas ?? []).map((idea) => idea.trim()).filter(Boolean);
+}
+
 export default function ChatPage() {
   const { user, household } = useSession();
   const toast = useToast();
@@ -226,9 +235,9 @@ export default function ChatPage() {
                       <p className="text-[11px] text-muted mb-0.5 ml-1">Kitchen AI</p>
                       <div className="rounded-2xl rounded-bl-md px-3.5 py-2.5 bg-surface border border-accent/25">
                         <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{m.body}</p>
-                        {m.meta?.dishIdeas?.length ? (
+                        {ideasOf(m).length ? (
                           <div className="flex flex-wrap gap-1.5 mt-2.5 pt-2.5 border-t border-line">
-                            {m.meta.dishIdeas.map((idea) => (
+                            {ideasOf(m).map((idea) => (
                               <button
                                 key={idea}
                                 onClick={() => addIdea(idea)}

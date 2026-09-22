@@ -115,6 +115,10 @@ export async function askChef(household: ActiveHousehold): Promise<chef.ChefRepl
     log.info("answered a chat question", { householdId: household.id, ideas: reply.dish_ideas?.length ?? 0 });
     // Put the real names back, so the reply reads like it knows the flat.
     const names = new Map([...people.restore, ...speakers.restore]);
-    return { ...reply, reply: restoreNames(reply.reply, names) };
+    // Strict mode makes the model emit `dish_ideas` even when it has none to offer, and
+    // it fills the slot with "". Stored as-is that became a blank one-tap chip: a button
+    // that adds a nameless dish. Same rule as the nulls — drop what the model left empty.
+    const ideas = (reply.dish_ideas ?? []).map((idea) => idea.trim()).filter(Boolean);
+    return { ...reply, dish_ideas: ideas, reply: restoreNames(reply.reply, names) };
   });
 }

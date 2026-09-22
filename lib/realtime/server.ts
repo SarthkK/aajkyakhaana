@@ -1,6 +1,7 @@
 import "server-only";
 import Ably from "ably";
 import { logger } from "@/lib/logger";
+import { runAfterResponse } from "@/lib/background";
 
 const log = logger("realtime");
 
@@ -43,14 +44,18 @@ function rest() {
 /**
  * Fire and forget. A realtime nudge failing must never fail the action that caused it
  * — the worst case is the other person's screen updates on the next poll instead.
+ *
+ * It must still be handed to runAfterResponse rather than left as a bare `void`: the
+ * publish usually starts a breath before the handler returns, and a suspended instance
+ * strands it. See lib/background.ts.
  */
 export function publish(householdId: string, event: string, data: Record<string, unknown> = {}) {
   if (!realtimeConfigured()) return;
 
-  void rest()
-    .channels.get(channelFor(householdId))
-    .publish(event, data)
-    .catch((err: unknown) => log.warn("could not publish", { householdId, event, err: String(err).slice(0, 120) }));
+  runAfterResponse(
+    rest().channels.get(channelFor(householdId)).publish(event, data),
+    (err) => log.warn("could not publish", { householdId, event, err: String(err).slice(0, 120) }),
+  );
 }
 
 /** Mints a token that can only listen to this one flat, and cannot publish. */

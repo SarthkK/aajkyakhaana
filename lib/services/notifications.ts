@@ -1,4 +1,5 @@
 import "server-only";
+import { runAfterResponse } from "@/lib/background";
 import webpush from "web-push";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
@@ -128,5 +129,7 @@ export async function notifyHousehold(opts: {
 
 /** Fire and forget — the caller's own response must not wait on push delivery. */
 export function notifyInBackground(opts: Parameters<typeof notifyHousehold>[0]) {
-  void notifyHousehold(opts).catch(() => {});
+  // Sending a push outlives the response, so the instance has to be kept alive for it.
+  // See lib/background.ts — a bare `void` left pushes stranded on a suspended instance.
+  runAfterResponse(notifyHousehold(opts));
 }

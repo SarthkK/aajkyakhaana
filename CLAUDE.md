@@ -96,7 +96,20 @@ database, which is the thing you actually care about.
 
 **Nulls from the AI must be dropped, not stored.** Strict JSON mode makes the model
 emit every nutrient, using `null` where it cannot estimate. Storing those as `0` drags
-the day's totals down and silently invents shortfalls.
+the day's totals down and silently invents shortfalls. The same applies to blanks: the
+chef returns `dish_ideas: [""]` when it has no ideas, because strict mode requires the
+key — stored as-is, that rendered a nameless one-tap chip that added a nameless dish.
+
+**`void somePromise()` does not survive the response. Use `runAfterResponse`.** Vercel
+can suspend the instance the moment a handler returns, and an outbound request that has
+not finished stops mid-flight — it resumes only when that instance is next woken by
+another request. Realtime nudges and push notifications were both plain `void` calls, so
+they arrived one action late or not at all. `tests/realtime-live.mjs` showed it exactly:
+every nudge landed inside the *next* test's window, and the tell was that the "thinking"
+nudge — published *before* the slow model call, while the handler was still running —
+always arrived, while the reply nudge published just before the response did not.
+Delivery went from a 6s timeout to ~200ms. `lib/background.ts` wraps `waitUntil`; it
+keeps fire-and-forget semantics, so callers still never wait and never fail.
 
 ---
 
@@ -122,6 +135,17 @@ never update.
 
 Tokens are minted server-side, scoped to one channel, and grant subscribe only — a
 browser cannot publish, so nobody can forge a nudge or listen to another flat.
+
+**A nudge that lands mid-fetch must be remembered, not dropped.** `pull()` used to bail
+out whenever a fetch was already in flight, which is the *common* case here: asking a
+question fires three signals inside a second — the message, "thinking", then the reply —
+so the reply's nudge nearly always arrives while the message's fetch is still out. The
+dots then span over a stale feed until the 30s heartbeat. It now sets a pending flag and
+loops once more when the fetch returns.
+
+**Only an `assistant` message clears the thinking indicator.** Clearing it on any
+incoming message raced with the question that triggered the assistant in the first
+place, wiping the dots instantly for everyone but the asker.
 
 ### Why polling looks the way it does
 

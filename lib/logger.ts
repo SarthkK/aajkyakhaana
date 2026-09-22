@@ -24,6 +24,9 @@ function minLevel(): number {
 /** Never let a connection string, key or token reach the logs. */
 const SECRET_KEY = /(password|secret|token|key|authorization|cookie|connection)/i;
 
+/** Nor an email address, wherever it turns up in a value. */
+const EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
+
 function scrub(value: unknown, depth = 0): unknown {
   if (depth > 4) return "[deep]";
   if (value instanceof Error) {
@@ -35,7 +38,10 @@ function scrub(value: unknown, depth = 0): unknown {
       Object.entries(value as Fields).map(([k, v]) => [k, SECRET_KEY.test(k) ? "[redacted]" : scrub(v, depth + 1)]),
     );
   }
-  if (typeof value === "string" && value.length > 500) return `${value.slice(0, 500)}…`;
+  if (typeof value === "string") {
+    const masked = value.replace(EMAIL, "[email]");
+    return masked.length > 500 ? `${masked.slice(0, 500)}…` : masked;
+  }
   return value;
 }
 

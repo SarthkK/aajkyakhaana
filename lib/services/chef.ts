@@ -7,6 +7,7 @@ import { chef } from "@/lib/ai/prompts";
 import { summarizeDay } from "@/lib/summary";
 import { todayIn, addDays } from "@/lib/dates";
 import { logger } from "@/lib/logger";
+import { pseudonymise, restoreNames } from "@/lib/privacy";
 import type { ActiveHousehold } from "@/lib/auth";
 
 const log = logger("chef");
@@ -71,6 +72,24 @@ export async function askChef(household: ActiveHousehold): Promise<chef.ChefRepl
     summarizeDay(household.id, today),
   ]);
 
+  // Nobody's real name leaves the server; the aliases are swapped back below.
+  const people = pseudonymise(
+    summary.members.map((m) => ({
+      name: m.name,
+      diet: m.diet,
+      goal: m.goal,
+      allergies: m.allergies,
+      dislikes: m.dislikes,
+      calories: m.targets?.calories,
+      protein: m.targets?.protein_g,
+    })),
+  );
+
+  const speakers = pseudonymise(
+    [...new Set(conversation.map((m) => m.authorName ?? "Someone"))].map((name) => ({ name })),
+  );
+  const speakerAlias = new Map([...speakers.restore].map(([alias, real]) => [real, alias]));
+
   return askForObject<chef.ChefReply>({
     name: "chef_reply",
     description: "Reply to the flat's question about what to eat.",
@@ -81,21 +100,11 @@ export async function askChef(household: ActiveHousehold): Promise<chef.ChefRepl
       cookName: household.cookName,
       // Oldest first reads as a conversation.
       conversation: conversation.reverse().map((m) => ({
-        author: m.authorName ?? "Someone",
+        author: speakerAlias.get(m.authorName ?? "Someone") ?? "Someone",
         body: m.body,
         isAssistant: m.kind === "assistant",
       })),
-      // First names only: free-tier prompts may be used for training, and a first name
-      // is enough for the model to tell people apart in a reply.
-      members: summary.members.map((m) => ({
-        name: m.name.split(" ")[0],
-        diet: m.diet,
-        goal: m.goal,
-        allergies: m.allergies,
-        dislikes: m.dislikes,
-        calories: m.targets?.calories,
-        protein: m.targets?.protein_g,
-      })),
+      members: people.members,
       library: library.map((d) => d.name),
       plannedSoon,
       recentlyEaten,
@@ -104,6 +113,8 @@ export async function askChef(household: ActiveHousehold): Promise<chef.ChefRepl
     maxTokens: 900,
   }).then((reply) => {
     log.info("answered a chat question", { householdId: household.id, ideas: reply.dish_ideas?.length ?? 0 });
-    return reply;
+    // Put the real names back, so the reply reads like it knows the flat.
+    const names = new Map([...people.restore, ...speakers.restore]);
+    return { ...reply, reply: restoreNames(reply.reply, names) };
   });
 }

@@ -208,6 +208,34 @@ export const shoppingItems = pgTable("shopping_items", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("shopping_items_household_idx").on(t.householdId, t.checked)]);
 
+/* ----------------------------------- pantry -------------------------------- */
+
+/**
+ * What the flat already has at home.
+ *
+ * Filled mostly without anyone thinking about it: ticking something off the shopping
+ * list means you bought it, so it goes in here. Cooking a meal takes its ingredients
+ * back out. The point is a shopping list that asks for what is actually missing,
+ * rather than everything a recipe mentions.
+ *
+ * `canonicalName` is the matching key from lib/ingredients.ts, so "chopped dhaniya"
+ * in a recipe finds the "Dhaniya" already in the pantry.
+ */
+export const pantryItems = pgTable("pantry_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  householdId: uuid("household_id").notNull().references(() => households.id, { onDelete: "cascade" }),
+  /** What to show. The plainest spelling seen for this ingredient. */
+  name: text("name").notNull(),
+  /** What to match on. Never shown. */
+  canonicalName: text("canonical_name").notNull(),
+  quantity: numeric("quantity", { precision: 10, scale: 2 }),
+  unit: text("unit"),
+  category: text("category").notNull().default("other"),
+  /** bought | manual — how it got here, so the UI can explain itself. */
+  source: text("source").notNull().default("bought"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [uniqueIndex("pantry_items_unique").on(t.householdId, t.canonicalName, t.unit)]);
+
 /* ------------------------------ AI suggestions ----------------------------- */
 
 /**
@@ -369,3 +397,4 @@ export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 export type Message = typeof messages.$inferSelect;
 export type SuggestionLogRow = typeof suggestionLog.$inferSelect;
 export type PollVote = typeof pollVotes.$inferSelect;
+export type PantryItem = typeof pantryItems.$inferSelect;

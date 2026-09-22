@@ -82,12 +82,30 @@ is walked manually: time each attempt out and try the next model.
 - Groq reports remaining quota at `GET /api/v1/key` — useful for telling "I am rate
   limited" apart from "the provider is busy", which look identical from a 429.
 
+## The model will refuse if you let it
+
+The planner once returned `{"meals":[],"summary":"No meals could be planned because
+the provided inputs contain placeholder names…"}` — it declined because the dish
+library looked like test data. Prompts that build something now say explicitly that
+missing or odd-looking background is never a reason to decline, and the route
+distinguishes "the model returned nothing" from "there was nothing to do". Reporting
+those as the same thing sent debugging in entirely the wrong direction.
+
+Relatedly: do not ask for a number as a string. `day_offset` was a string containing a
+digit, and the model responded by refusing to plan at all. `int()` fixed it.
+
 ## Privacy
 
-Free-tier prompts may be used for training, on both providers. **Flatmates' names are
-stripped before anything leaves the server** — the model sees `Flatmate 1: veg, goal
-gain, allergic to peanuts`. Ages, heights and weights are never sent. Keep it that way
-when adding context to a prompt.
+Free-tier prompts may be used for training, on both providers. Every prompt therefore
+goes through `lib/privacy.ts`: people become "Person A", "Person B", and the real names
+are swapped back into whatever the model writes, so a reply still reads like it knows
+the flat. Ages, heights, weights and email addresses are never sent in any prompt.
+
+Aliases rather than numbered labels because the assistant's replies are read by people
+— "Person B is vegetarian" restores cleanly to "Khushi is vegetarian", where
+"Flatmate 2" reads like a database row. Restoration is best-effort: if the model
+ignores the aliases the text is left alone, which is slightly odd but never exposes
+anyone.
 
 ## Editing prompts
 

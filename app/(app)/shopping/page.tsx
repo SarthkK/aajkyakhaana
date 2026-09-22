@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Sparkles, Trash2, Check, Eraser } from "lucide-react";
+import { Plus, Sparkles, Trash2, Check, Eraser, Boxes } from "lucide-react";
 import { api, useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
 import { Button, Input, Sheet, Field, Select, ErrorNote, EmptyState, cx } from "@/components/ui";
@@ -10,6 +10,7 @@ import { CATEGORY_LABELS, CATEGORY_ORDER } from "@/lib/shopping";
 import { addDays, todayIn } from "@/lib/dates";
 import { useSession } from "@/components/SessionProvider";
 import { useToast } from "@/components/Toast";
+import { PantrySheet } from "@/components/PantrySheet";
 import type { ShoppingItemView } from "@/lib/types";
 
 export default function ShoppingPage() {
@@ -18,6 +19,7 @@ export default function ShoppingPage() {
   const { data, error, loading, reload, setData } = useApi<{ items: ShoppingItemView[] }>("/api/shopping");
   const [quick, setQuick] = useState("");
   const [adding, setAdding] = useState(false);
+  const [pantryOpen, setPantryOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
 
   const items = data?.items ?? [];
@@ -95,16 +97,25 @@ export default function ShoppingPage() {
     setGenerating(true);
     try {
       const today = todayIn(household.timezone);
-      const res = await api.post<{ added: number; skipped: number; message?: string }>("/api/shopping/generate", {
+      const res = await api.post<{
+        added: number;
+        skipped: number;
+        message?: string;
+        alreadyHave?: string[];
+        settledMeals?: number;
+      }>("/api/shopping/generate", {
         from: today,
         to: addDays(today, 6),
       });
       await reload();
+      const covered = res.alreadyHave?.length
+        ? ` — you already have ${res.alreadyHave.slice(0, 3).join(", ")}${res.alreadyHave.length > 3 ? " and more" : ""}`
+        : "";
       toast(
         res.message ??
           (res.added === 0
-            ? "Everything planned this week is already on the list"
-            : `Added ${res.added} thing${res.added === 1 ? "" : "s"} from this week's plan`),
+            ? `Nothing to buy${covered || " — it's all on the list already"}`
+            : `Added ${res.added} thing${res.added === 1 ? "" : "s"}${covered}`),
         { tone: res.added === 0 ? "info" : "good" },
       );
     } catch (err) {
@@ -145,9 +156,14 @@ export default function ShoppingPage() {
           </Button>
         </form>
 
-        <Button variant="secondary" className="w-full mb-4" onClick={generate} loading={generating}>
-          <Sparkles className="size-4 text-accent" /> Build from this week&apos;s plan
-        </Button>
+        <div className="flex gap-2 mb-4">
+          <Button variant="secondary" className="flex-1" onClick={generate} loading={generating}>
+            <Sparkles className="size-4 text-accent" /> Build from the plan
+          </Button>
+          <Button variant="secondary" onClick={() => setPantryOpen(true)} className="px-3.5">
+            <Boxes className="size-4" /> Pantry
+          </Button>
+        </div>
 
         {loading && !data && <ShoppingListSkeleton />}
         {error && !data && <ErrorNote>{error}</ErrorNote>}
@@ -197,6 +213,7 @@ export default function ShoppingPage() {
       </div>
 
       <AddItemSheet open={adding} onClose={() => setAdding(false)} onAdded={reload} />
+      <PantrySheet open={pantryOpen} onClose={() => setPantryOpen(false)} onChanged={reload} />
     </>
   );
 }

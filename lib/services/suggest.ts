@@ -5,6 +5,7 @@ import { dishes, planEntries, suggestionLog } from "@/lib/db/schema";
 import { suggestMealsFor, type Suggestion } from "@/lib/ai/suggest";
 import { summarizeDay } from "@/lib/summary";
 import { todayIn, addDays, type Slot } from "@/lib/dates";
+import { pseudonymise } from "@/lib/privacy";
 import type { ActiveHousehold } from "@/lib/auth";
 
 export type { Suggestion };
@@ -99,16 +100,17 @@ export async function buildSuggestions(input: {
     })),
     recent: recentRows,
     plannedToday: sameDay,
-    // Names are stripped before leaving the server. Free model endpoints are allowed
-    // to train on what they receive, and the model does not need to know who is who
-    // to cook one meal for everyone.
-    members: summary.members.map((m, i) => ({
-      name: `Flatmate ${i + 1}`,
-      diet: m.diet,
-      goal: m.goal,
-      allergies: m.allergies,
-      dislikes: m.dislikes,
-    })),
+    // Pseudonymised like every other prompt — see lib/privacy.ts. Nothing is restored
+    // here because suggestions never mention a person by name.
+    members: pseudonymise(
+      summary.members.map((m) => ({
+        name: m.name,
+        diet: m.diet,
+        goal: m.goal,
+        allergies: m.allergies,
+        dislikes: m.dislikes,
+      })),
+    ).members,
     gaps: summary.gaps.slice(0, 5).map((g) => ({ nutrient: g.label, pctOfTarget: g.pctOfTarget })),
     recentlySuggested: [...new Set(alreadyOffered.map((r) => r.name))],
   });

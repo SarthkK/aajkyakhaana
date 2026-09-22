@@ -5,6 +5,8 @@ import { planEntries } from "@/lib/db/schema";
 import { requireContext, handler, json, ApiError } from "@/lib/api";
 import { isValidDate, friendlyDate, todayIn, SLOT_LABELS, type Slot } from "@/lib/dates";
 import { recordEvent } from "@/lib/services/chat";
+import { removeStock } from "@/lib/services/pantry";
+import { dishIngredients } from "@/lib/db/schema";
 import { dishes } from "@/lib/db/schema";
 import { eq as eqOp } from "drizzle-orm";
 
@@ -31,12 +33,35 @@ async function loadEntry(id: string, householdId: string) {
 export const PATCH = handler(async (req: Request, ctx: Ctx) => {
   const { household } = await requireContext();
   const { id } = await ctx.params;
-  await loadEntry(id, household.id);
+  const existing = await loadEntry(id, household.id);
 
   const patch = patchSchema.parse(await req.json());
   if (Object.keys(patch).length === 0) throw new ApiError("Nothing to update");
 
   const [entry] = await db.update(planEntries).set(patch).where(eq(planEntries.id, id)).returning();
+
+  // Marking a meal cooked takes its ingredients out of the kitchen, which is what
+  // keeps the pantry honest without anyone maintaining it by hand.
+  if (patch.status === "cooked" && existing.status !== "cooked") {
+    const used = await db
+      .select()
+      .from(dishIngredients)
+      .where(eqOp(dishIngredients.dishId, entry.dishId));
+
+    const base = existing.servings ?? null;
+    await removeStock(
+      household.id,
+      used
+        .filter((i) => !i.isPantryStaple && i.quantity != null)
+        .map((i) => ({
+          name: i.name,
+          // Scaled to however many the meal was actually for.
+          quantity: Number(i.quantity) * (base ? base / 4 : 1),
+          unit: i.unit,
+        })),
+    );
+  }
+
   return json({ entry });
 });
 

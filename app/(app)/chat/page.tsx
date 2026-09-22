@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { Send, CalendarPlus, CalendarMinus, ChefHat, PauseCircle, Sparkles, Dices, Plus } from "lucide-react";
+import { Send, CalendarPlus, CalendarMinus, ChefHat, PauseCircle, Sparkles, Dices, Plus, CalendarRange } from "lucide-react";
 import { api } from "@/lib/client";
 import { useChatFeed } from "@/lib/useChatFeed";
 import { AppHeader } from "@/components/AppHeader";
@@ -35,6 +35,7 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false);
   const [thinking, setThinking] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [planning, setPlanning] = useState(false);
   const bottom = useRef<HTMLDivElement>(null);
 
   // Follow the conversation as it grows, the way every chat does.
@@ -95,6 +96,29 @@ export default function ChatPage() {
       toast(err instanceof Error ? err.message : "Could not start a vote", { tone: "bad" });
     } finally {
       setStarting(false);
+    }
+  }
+
+  /**
+   * Plans the next few days in one go. Anything the flat has already decided is left
+   * alone — a planner that overwrites this morning's agreed dinner is worse than none.
+   */
+  async function planWeek() {
+    setPlanning(true);
+    const request = draft.trim();
+    try {
+      if (request) setDraft("");
+      const res = await api.post<{ added: unknown[]; message: FeedMessage }>("/api/chat/plan", {
+        days: 3,
+        request: request || null,
+      });
+      append(res.message);
+      toast(`Planned ${res.added.length} meals`);
+    } catch (err) {
+      if (request) setDraft(request);
+      toast(err instanceof Error ? err.message : "Could not plan that", { tone: "bad" });
+    } finally {
+      setPlanning(false);
     }
   }
 
@@ -264,13 +288,16 @@ export default function ChatPage() {
         >
           {/* The two things worth doing here that a plain chat cannot: ask the app what
               to cook, or make everyone decide together. */}
-          <div className="flex gap-2 px-4 pt-2.5">
-            <Button size="sm" variant="secondary" className="flex-1" onClick={ask} loading={thinking}>
+          <div className="flex gap-1.5 px-4 pt-2.5 overflow-x-auto no-scrollbar">
+            <Button size="sm" variant="secondary" className="shrink-0" onClick={ask} loading={thinking}>
               <Sparkles className="size-3.5 text-accent" />
-              {draft.trim() ? "Ask this" : "Ask the AI"}
+              {draft.trim() ? "Ask this" : "Ask"}
             </Button>
-            <Button size="sm" variant="secondary" className="flex-1" onClick={startVote} loading={starting}>
-              <Dices className="size-3.5 text-accent" /> Start a vote
+            <Button size="sm" variant="secondary" className="shrink-0" onClick={planWeek} loading={planning}>
+              <CalendarRange className="size-3.5 text-accent" /> Plan 3 days
+            </Button>
+            <Button size="sm" variant="secondary" className="shrink-0" onClick={startVote} loading={starting}>
+              <Dices className="size-3.5 text-accent" /> Vote
             </Button>
           </div>
 

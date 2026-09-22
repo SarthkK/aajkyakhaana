@@ -2,4 +2,5 @@
 export * as dishDetails from "./dish-details";
 export * as suggestMeals from "./suggest-meals";
 export * as chef from "./chef";
+export * as planner from "./planner";
 export { KITCHEN_CONTEXT, UNITS, CATEGORIES, COURSES } from "./kitchen-context";

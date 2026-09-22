@@ -5,6 +5,8 @@ import { planEntries, dishes, dishIngredients, shoppingItems } from "@/lib/db/sc
 import { requireContext, handler, json } from "@/lib/api";
 import { isValidDate, todayIn, addDays } from "@/lib/dates";
 import { mergeItems, normalizeName } from "@/lib/shopping";
+import { currentStock, deductStock } from "@/lib/services/pantry";
+import { isSlotLocked, type Slot } from "@/lib/slots";
 
 const schema = z.object({
   from: z.string().refine(isValidDate).optional(),
@@ -30,6 +32,7 @@ export const POST = handler(async (req: Request) => {
     .select({
       entryId: planEntries.id,
       date: planEntries.date,
+      slot: planEntries.slot,
       servings: planEntries.servings,
       dishId: dishes.id,
       dishName: dishes.name,
@@ -50,7 +53,21 @@ export const POST = handler(async (req: Request) => {
     return json({ added: 0, skipped: 0, message: "Nothing is planned in that range yet." });
   }
 
-  const dishIds = [...new Set(planned.map((p) => p.dishId))];
+  // A meal past its lock time is being cooked, or has been. Shopping for it is asking
+  // someone to buy ingredients for dinner they already ate.
+  const shoppable = planned.filter((entry) => !isSlotLocked(entry.date, entry.slot as Slot, household));
+
+  if (shoppable.length === 0) {
+    return json({
+      added: 0,
+      skipped: 0,
+      alreadyHave: [],
+      settledMeals: planned.length,
+      message: "Everything planned in that range is already settled — nothing left to buy for.",
+    });
+  }
+
+  const dishIds = [...new Set(shoppable.map((p) => p.dishId))];
   const ingredients = await db.select().from(dishIngredients).where(inArray(dishIngredients.dishId, dishIds));
 
   const byDish = new Map<string, typeof ingredients>();
@@ -60,7 +77,7 @@ export const POST = handler(async (req: Request) => {
   }
 
   const raw = [];
-  for (const entry of planned) {
+  for (const entry of shoppable) {
     const list = byDish.get(entry.dishId) ?? [];
     const base = entry.baseServings || 4;
     const scale = (entry.servings ?? base) / base;
@@ -79,6 +96,11 @@ export const POST = handler(async (req: Request) => {
 
   const merged = mergeItems(raw);
 
+  // Subtract what is already in the kitchen, so the list asks for what is missing
+  // rather than everything the recipes mention.
+  const stock = await currentStock(household.id);
+  const { shopping: stillNeeded, alreadyHave } = deductStock(merged, stock);
+
   // Do not duplicate what is already waiting to be bought.
   const existing = await db
     .select({ name: shoppingItems.name, unit: shoppingItems.unit })
@@ -86,7 +108,7 @@ export const POST = handler(async (req: Request) => {
     .where(and(eq(shoppingItems.householdId, household.id), eq(shoppingItems.checked, false)));
   const existingKeys = new Set(existing.map((e) => `${normalizeName(e.name)}|${e.unit ?? ""}`));
 
-  const toInsert = merged
+  const toInsert = stillNeeded
     .filter((m) => !existingKeys.has(`${normalizeName(m.name)}|${m.unit ?? ""}`))
     .map((m) => ({
       householdId: household.id,
@@ -102,10 +124,14 @@ export const POST = handler(async (req: Request) => {
 
   if (toInsert.length) await db.insert(shoppingItems).values(toInsert);
 
-  const dishNames = [...new Set(planned.map((p) => p.dishName))];
+  const dishNames = [...new Set(shoppable.map((p) => p.dishName))];
+  const settled = planned.length - shoppable.length;
+
   return json({
     added: toInsert.length,
-    skipped: merged.length - toInsert.length,
+    skipped: stillNeeded.length - toInsert.length,
+    alreadyHave,
+    settledMeals: settled,
     dishes: dishNames,
     missingIngredients: dishIds.filter((id) => !byDish.has(id)).length,
   });

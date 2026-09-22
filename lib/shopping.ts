@@ -1,3 +1,5 @@
+import { canonicalIngredient, preferredLabel } from "@/lib/ingredients";
+
 export type RawItem = {
   name: string;
   quantity: number | null;
@@ -30,8 +32,15 @@ function round(n: number) {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * The key two ingredients must share to be one line on the list.
+ *
+ * Delegates to lib/ingredients.ts, which knows that "chopped dhaniya" and "Coriander
+ * leaves (for garnish)" are the same trip to the sabzi-wala, and that kasuri methi is
+ * not.
+ */
 export function normalizeName(name: string) {
-  return name.trim().toLowerCase().replace(/\s+/g, " ").replace(/\(.*?\)/g, "").trim();
+  return canonicalIngredient(name);
 }
 
 export type MergedItem = RawItem & { key: string; note: string | null };
@@ -46,8 +55,11 @@ export type MergedItem = RawItem & { key: string; note: string | null };
  * the remainder in the note: "200 g  (+ 2 piece)".
  */
 export function mergeItems(items: RawItem[]): MergedItem[] {
-  // name -> base unit -> running total (null means "to taste", no quantity)
-  const byName = new Map<string, { label: string; category: string; units: Map<string, number | null> }>();
+  // canonical name -> base unit -> running total (null means "to taste", no quantity)
+  const byName = new Map<
+    string,
+    { labels: string[]; category: string; units: Map<string, number | null> }
+  >();
 
   for (const item of items) {
     const norm = normalizeName(item.name);
@@ -55,9 +67,11 @@ export function mergeItems(items: RawItem[]): MergedItem[] {
 
     let entry = byName.get(norm);
     if (!entry) {
-      entry = { label: item.name.trim(), category: item.category, units: new Map() };
+      entry = { labels: [], category: item.category, units: new Map() };
       byName.set(norm, entry);
     }
+    // Every spelling seen, so the plainest one can be shown.
+    entry.labels.push(item.name.trim());
 
     if (item.quantity == null) {
       if (!entry.units.has("~")) entry.units.set("~", null);
@@ -74,13 +88,15 @@ export function mergeItems(items: RawItem[]): MergedItem[] {
       .filter(([base]) => base !== "~")
       .map(([base, total]) => fromBase(total ?? 0, base));
 
+    const label = preferredLabel(entry.labels);
+
     if (parts.length === 0) {
-      return { name: entry.label, quantity: null, unit: "", category: entry.category, key: norm, note: null };
+      return { name: label, quantity: null, unit: "", category: entry.category, key: norm, note: null };
     }
 
     const [main, ...extras] = parts;
     return {
-      name: entry.label,
+      name: label,
       quantity: main.quantity,
       unit: main.unit,
       category: entry.category,

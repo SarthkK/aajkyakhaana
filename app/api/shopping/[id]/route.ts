@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { shoppingItems } from "@/lib/db/schema";
 import { requireContext, handler, json, ApiError } from "@/lib/api";
+import { addStock, removeStock } from "@/lib/services/pantry";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -20,7 +21,7 @@ export const PATCH = handler(async (req: Request, ctx: Ctx) => {
   const { id } = await ctx.params;
 
   const [existing] = await db
-    .select({ id: shoppingItems.id })
+    .select()
     .from(shoppingItems)
     .where(and(eq(shoppingItems.id, id), eq(shoppingItems.householdId, household.id)))
     .limit(1);
@@ -36,6 +37,20 @@ export const PATCH = handler(async (req: Request, ctx: Ctx) => {
   }
 
   const [item] = await db.update(shoppingItems).set(values).where(eq(shoppingItems.id, id)).returning();
+
+  // Ticking something off means you bought it, so it is now in the kitchen; unticking
+  // means you did not, so take it back out. Only on an actual change of state.
+  if (patch.checked !== undefined && patch.checked !== existing.checked) {
+    const change = [{
+      name: item.name,
+      quantity: item.quantity != null ? Number(item.quantity) : null,
+      unit: item.unit ?? "piece",
+      category: item.category,
+    }];
+    if (patch.checked) await addStock(household.id, change);
+    else await removeStock(household.id, change);
+  }
+
   return json({ item });
 });
 

@@ -82,6 +82,18 @@ trusting the cookie, and a 401 from any API call triggers a full page load to si
 Don't "optimise" that to a soft navigation — the hard load is what discards cached SWR
 data belonging to the dead session.
 
+**Nobody's name reaches a model provider.** Free-tier prompts may be trained on, so
+every prompt pseudonymises people through `lib/privacy.ts` — "Person A", "Person B" —
+and swaps the real names back into whatever the model writes. Ages, heights, weights
+and emails are never sent at all. Diets, goals, allergies and dislikes are, because a
+plan that ignores an allergy is worse than useless. If you add a prompt, pseudonymise
+it; the three existing ones all do.
+
+**`drizzle-kit generate` lies here; use `push`.** `generate` diffs against the
+migration journal, and this project has only ever used `push` — so `generate` will
+confidently offer to create tables that production already has. `push` diffs the live
+database, which is the thing you actually care about.
+
 **Nulls from the AI must be dropped, not stored.** Strict JSON mode makes the model
 emit every nutrient, using `null` where it cannot estimate. Storing those as `0` drags
 the day's totals down and silently invents shortfalls.
@@ -132,7 +144,10 @@ phone, and the dish library is somewhere you go occasionally to tidy up.
 ## Testing
 
 ```bash
-npm test                                            # unit + e2e against localhost
+npm run test:unit      # pure logic, no network
+npm run test:e2e       # every feature, against a running server
+npm run test:chat      # the chat assistant and the in-chat vote (calls a real model)
+npm run test:pantry    # ingredient reconciliation, pantry, multi-day planner
 BASE=https://aajkyakhaana.vercel.app npm run test:e2e
 ```
 

@@ -94,6 +94,18 @@ migration journal, and this project has only ever used `push` — so `generate` 
 confidently offer to create tables that production already has. `push` diffs the live
 database, which is the thing you actually care about.
 
+**A slot has one meal, however many dishes are proposed for it.** Nothing ever sets a
+plan entry to `cancelled` on its own — losing a vote does not — so "every entry that is
+not cancelled" silently means "every dish anyone ever suggested". Both the day summary
+and the shopping list were written that way, so a flat that argues about dinner was told
+it was eating 2500 kcal and hitting 100% of protein off a day with one real meal in it,
+and the grocery list bought ingredients for the dishes that lost. Worse, the same numbers
+feed the chef, the planner and the suggestion prompt, so the model was being told the
+flat was well fed. Anything totalling a day must pick the winner per slot with
+`resolveSlot` (most votes, then first proposed) — the rule the board and the cook's
+briefing already display. `tests/slots.mjs` guards it. Note that proposing a dish
+upvotes it for the proposer, so one person cannot break their own tie.
+
 **Nulls from the AI must be dropped, not stored.** Strict JSON mode makes the model
 emit every nutrient, using `null` where it cannot estimate. Storing those as `0` drags
 the day's totals down and silently invents shortfalls. The same applies to blanks: the
@@ -193,6 +205,7 @@ npm run test:unit      # pure logic, no network
 npm run test:e2e       # every feature, against a running server
 npm run test:chat      # the chat assistant and the in-chat vote (calls a real model)
 npm run test:pantry    # ingredient reconciliation, pantry, multi-day planner
+npm run test:slots     # one meal per slot, and editing the list and the pantry
 npm run test:realtime  # token scoping, and that everything works without a key
 BASE=https://aajkyakhaana.vercel.app npm run test:e2e
 ```

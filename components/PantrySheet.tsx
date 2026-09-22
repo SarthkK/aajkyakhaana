@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Trash2, Boxes } from "lucide-react";
+import { Plus, Trash2, Boxes, Pencil } from "lucide-react";
 import { api, useApi } from "@/lib/client";
 import { Sheet, Input, Button, Select, EmptyState, cx } from "@/components/ui";
 import { Skeleton } from "@/components/Skeleton";
 import { useToast } from "@/components/Toast";
 import { CATEGORY_LABELS, CATEGORY_ORDER } from "@/lib/shopping";
+import { ItemEditSheet } from "@/components/ItemEditSheet";
 
 type PantryRow = {
   id: string;
@@ -31,6 +32,7 @@ export function PantrySheet({ open, onClose, onChanged }: { open: boolean; onClo
   const [quantity, setQuantity] = useState("");
   const [unit, setUnit] = useState("g");
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<PantryRow | null>(null);
 
   const items = useMemo(() => data?.items ?? [], [data]);
 
@@ -65,6 +67,13 @@ export function PantrySheet({ open, onClose, onChanged }: { open: boolean; onClo
     }
   }
 
+  async function saveEdit(patch: { name: string; quantity: number | null; unit: string | null; category: string }) {
+    if (!editing) return;
+    await api.patch(`/api/pantry/${editing.id}`, patch);
+    await reload();
+    onChanged();
+  }
+
   async function remove(item: PantryRow) {
     try {
       await api.del(`/api/pantry/${item.id}`);
@@ -83,24 +92,30 @@ export function PantrySheet({ open, onClose, onChanged }: { open: boolean; onClo
         back out. The list only asks for what this does not already cover.
       </p>
 
-      <form onSubmit={add} className="flex gap-2 mb-5">
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Rajma" className="flex-1" />
-        <Input
-          type="number"
-          inputMode="decimal"
-          value={quantity}
-          onChange={(e) => setQuantity(e.target.value)}
-          placeholder="500"
-          className="w-20 px-3"
-        />
-        <Select value={unit} onChange={(e) => setUnit(e.target.value)} className="w-20 px-2">
-          {["g", "kg", "ml", "l", "piece"].map((u) => (
-            <option key={u} value={u}>{u}</option>
-          ))}
-        </Select>
-        <Button type="submit" loading={busy} disabled={!name.trim()} className="px-3 shrink-0">
-          <Plus className="size-4" />
-        </Button>
+      {/* Name on its own line: four controls in one row squeezed it to a few pixels on a
+          phone, which is every device this is used on. */}
+      <form onSubmit={add} className="space-y-2 mb-5">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Rajma" />
+        {/* A grid, not flex with widths: Input and Select both carry w-full in their base
+            class, which beats any width set here — Tailwind orders those by utility, not
+            by the order they appear in the string. Sizing the cell sidesteps it. */}
+        <div className="grid grid-cols-[1fr_6.5rem_auto] gap-2">
+          <Input
+            type="number"
+            inputMode="decimal"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value)}
+            placeholder="500"
+          />
+          <Select value={unit} onChange={(e) => setUnit(e.target.value)} className="px-3">
+            {["g", "kg", "ml", "l", "piece"].map((u) => (
+              <option key={u} value={u}>{u}</option>
+            ))}
+          </Select>
+          <Button type="submit" loading={busy} disabled={!name.trim()} className="px-4">
+            <Plus className="size-4" />
+          </Button>
+        </div>
       </form>
 
       {loading && (
@@ -126,13 +141,20 @@ export function PantrySheet({ open, onClose, onChanged }: { open: boolean; onClo
             <ul className="rounded-3xl border border-line overflow-hidden divide-y divide-line">
               {rows.map((item) => (
                 <li key={item.id} className="flex items-center gap-3 bg-surface px-3.5 py-2.5">
-                  <span className="min-w-0 flex-1">
+                  <button onClick={() => setEditing(item)} className="min-w-0 flex-1 text-left">
                     <span className="block text-sm truncate">{item.name}</span>
                     <span className="block text-xs text-muted">
                       {item.quantity != null ? `${item.quantity} ${item.unit ?? ""}` : "some"}
                       {item.source === "bought" ? " · bought" : " · added by hand"}
                     </span>
-                  </span>
+                  </button>
+                  <button
+                    onClick={() => setEditing(item)}
+                    className="p-2 text-muted shrink-0"
+                    aria-label={`Edit ${item.name}`}
+                  >
+                    <Pencil className="size-4" />
+                  </button>
                   <button
                     onClick={() => remove(item)}
                     className="p-2 -mr-1 text-muted shrink-0"
@@ -146,6 +168,17 @@ export function PantrySheet({ open, onClose, onChanged }: { open: boolean; onClo
           </section>
         ))}
       </div>
+
+      <ItemEditSheet
+        item={editing}
+        title="Fix this shelf"
+        units={["g", "kg", "ml", "l", "piece"]}
+        onClose={() => setEditing(null)}
+        onSave={saveEdit}
+        onDelete={async () => {
+          if (editing) await remove(editing);
+        }}
+      />
 
       <div className={cx("flex items-center gap-2 text-xs text-muted mt-5 px-1")}>
         <Boxes className="size-3.5 shrink-0" />

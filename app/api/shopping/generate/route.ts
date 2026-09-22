@@ -1,12 +1,12 @@
 import { z } from "zod";
 import { eq, and, gte, lte, inArray, ne } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { planEntries, dishes, dishIngredients, shoppingItems } from "@/lib/db/schema";
+import { planEntries, dishes, dishIngredients, shoppingItems, votes } from "@/lib/db/schema";
 import { requireContext, handler, json } from "@/lib/api";
 import { isValidDate, todayIn, addDays } from "@/lib/dates";
 import { mergeItems, normalizeName } from "@/lib/shopping";
 import { currentStock, deductStock } from "@/lib/services/pantry";
-import { isSlotLocked, type Slot } from "@/lib/slots";
+import { isSlotLocked, resolveSlot, type Slot } from "@/lib/slots";
 
 const schema = z.object({
   from: z.string().refine(isValidDate).optional(),
@@ -28,12 +28,14 @@ export const POST = handler(async (req: Request) => {
   const from = input.from ?? today;
   const to = input.to ?? addDays(from, 6);
 
-  const planned = await db
+  const proposed = await db
     .select({
       entryId: planEntries.id,
       date: planEntries.date,
       slot: planEntries.slot,
       servings: planEntries.servings,
+      status: planEntries.status,
+      createdAt: planEntries.createdAt,
       dishId: dishes.id,
       dishName: dishes.name,
       baseServings: dishes.baseServings,
@@ -48,6 +50,37 @@ export const POST = handler(async (req: Request) => {
         ne(planEntries.status, "cancelled"),
       ),
     );
+
+  if (proposed.length === 0) {
+    return json({ added: 0, skipped: 0, message: "Nothing is planned in that range yet." });
+  }
+
+  // Only the dish each meal actually settles on gets bought for. Proposing three dinners
+  // and voting for one does not mean shopping for three — but this used to take every
+  // entry that was not explicitly cancelled, and nothing ever sets "cancelled" on its
+  // own, so losing a vote still put its ingredients on the list. Same most-votes-then-
+  // first-proposed rule as the board, via resolveSlot.
+  const entryVotes = await db
+    .select({ planEntryId: votes.planEntryId, value: votes.value })
+    .from(votes)
+    .where(inArray(votes.planEntryId, proposed.map((p) => p.entryId)));
+
+  const votable = proposed.map((p) => ({
+    ...p,
+    id: p.entryId,
+    createdAt: new Date(p.createdAt).toISOString(),
+    upVotes: entryVotes.filter((v) => v.planEntryId === p.entryId && v.value > 0).length,
+  }));
+
+  const meals = new Map<string, typeof votable>();
+  for (const e of votable) {
+    const key = `${e.date}|${e.slot}`;
+    meals.set(key, [...(meals.get(key) ?? []), e]);
+  }
+
+  const planned = [...meals.values()]
+    .map((group) => resolveSlot(group, { locked: false }).winner)
+    .filter((w) => w !== null);
 
   if (planned.length === 0) {
     return json({ added: 0, skipped: 0, message: "Nothing is planned in that range yet." });

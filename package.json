@@ -15,6 +15,7 @@
     "test": "npm run test:unit && npm run test:e2e",
     "test:chat": "node tests/chat-ai.mjs",
     "test:pantry": "node tests/pantry.mjs",
+    "test:slots": "node tests/slots.mjs",
     "test:realtime": "node tests/realtime.mjs && node tests/realtime-live.mjs"
   },
   "dependencies": {

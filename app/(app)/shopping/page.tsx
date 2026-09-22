@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Sparkles, Trash2, Check, Eraser, Boxes } from "lucide-react";
+import { Plus, Sparkles, Trash2, Check, Eraser, Boxes, Pencil } from "lucide-react";
 import { api, useApi } from "@/lib/client";
 import { AppHeader } from "@/components/AppHeader";
 import { Button, Input, Sheet, Field, Select, ErrorNote, EmptyState, cx } from "@/components/ui";
@@ -11,6 +11,7 @@ import { addDays, todayIn } from "@/lib/dates";
 import { useSession } from "@/components/SessionProvider";
 import { useToast } from "@/components/Toast";
 import { PantrySheet } from "@/components/PantrySheet";
+import { ItemEditSheet } from "@/components/ItemEditSheet";
 import type { ShoppingItemView } from "@/lib/types";
 
 export default function ShoppingPage() {
@@ -21,6 +22,7 @@ export default function ShoppingPage() {
   const [adding, setAdding] = useState(false);
   const [pantryOpen, setPantryOpen] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [editing, setEditing] = useState<ShoppingItemView | null>(null);
 
   const items = data?.items ?? [];
   const pending = items.filter((i) => !i.checked);
@@ -49,6 +51,12 @@ export default function ShoppingPage() {
       toast("That did not save — check your connection", { tone: "bad" });
       void reload();
     }
+  }
+
+  async function saveEdit(patch: { name: string; quantity: number | null; unit: string | null; category: string; note?: string | null }) {
+    if (!editing) return;
+    await api.patch(`/api/shopping/${editing.id}`, patch);
+    await reload();
   }
 
   async function remove(item: ShoppingItemView) {
@@ -184,7 +192,13 @@ export default function ShoppingPage() {
               </h2>
               <ul className="rounded-3xl border border-line overflow-hidden divide-y divide-line">
                 {groupItems.map((item) => (
-                  <Row key={item.id} item={item} onToggle={() => toggle(item)} onRemove={() => remove(item)} />
+                  <Row
+                    key={item.id}
+                    item={item}
+                    onToggle={() => toggle(item)}
+                    onEdit={() => setEditing(item)}
+                    onRemove={() => remove(item)}
+                  />
                 ))}
               </ul>
             </section>
@@ -202,7 +216,13 @@ export default function ShoppingPage() {
               </div>
               <ul className="rounded-3xl border border-line overflow-hidden divide-y divide-line opacity-60">
                 {done.map((item) => (
-                  <Row key={item.id} item={item} onToggle={() => toggle(item)} onRemove={() => remove(item)} />
+                  <Row
+                    key={item.id}
+                    item={item}
+                    onToggle={() => toggle(item)}
+                    onEdit={() => setEditing(item)}
+                    onRemove={() => remove(item)}
+                  />
                 ))}
               </ul>
             </section>
@@ -214,6 +234,18 @@ export default function ShoppingPage() {
 
       <AddItemSheet open={adding} onClose={() => setAdding(false)} onAdded={reload} />
       <PantrySheet open={pantryOpen} onClose={() => setPantryOpen(false)} onChanged={reload} />
+
+      <ItemEditSheet
+        item={editing}
+        title="Edit this item"
+        units={["g", "kg", "ml", "l", "piece", "packet", "bunch", "dozen"]}
+        showNote
+        onClose={() => setEditing(null)}
+        onSave={saveEdit}
+        onDelete={async () => {
+          if (editing) await remove(editing);
+        }}
+      />
     </>
   );
 }
@@ -221,10 +253,12 @@ export default function ShoppingPage() {
 function Row({
   item,
   onToggle,
+  onEdit,
   onRemove,
 }: {
   item: ShoppingItemView;
   onToggle: () => void;
+  onEdit: () => void;
   onRemove: () => void;
 }) {
   const qty = item.quantity ? `${Number(item.quantity)}${item.unit ? ` ${item.unit}` : ""}` : null;
@@ -250,6 +284,10 @@ function Row({
           {qty && (item.source === "plan" || item.addedByName) ? " · " : ""}
           {item.source === "plan" ? "from the plan" : item.addedByName ? `${item.addedByName.split(" ")[0]} added` : ""}
         </span>
+      </button>
+
+      <button onClick={onEdit} className="p-2 text-muted shrink-0" aria-label={`Edit ${item.name}`}>
+        <Pencil className="size-4" />
       </button>
 
       <button onClick={onRemove} className="p-2 -mr-2 text-muted shrink-0" aria-label="Remove">
